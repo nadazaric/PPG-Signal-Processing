@@ -23,7 +23,7 @@ state = {
     "x": [],
     "signals": {name: [] for name in SIGNAL_COLUMNS},
     "filtered_signals": {name: [] for name in FILTERED_COLUMNS},
-    "window_size": 1000,
+    "window_size": 2500,
     "start_index": 0,
 }
 
@@ -184,7 +184,7 @@ def load_selected_file(sender=None, app_data=None, user_data=None):
     state["signals"] = preprocess_signals(signals)
     state["filtered_signals"] = preprocess_signals(calculate_filtered_signals(signals))
     state["start_index"] = 0
-    state["window_size"] = min(1000, max(len(x_values), 10))
+    state["window_size"] = min(2500, max(len(x_values), 10))
     update_plots()
 
 
@@ -280,8 +280,8 @@ def build_ui():
             label="Broj uzoraka u prikazu",
             tag="window_size_slider",
             min_value=10,
-            max_value=1000,
-            default_value=1000,
+            max_value=2500,
+            default_value=2500,
             width=-1,
             callback=on_window_size_changed,
         )
@@ -313,6 +313,8 @@ def build_ui():
                     )
             with dpg.tab(label="Staticka obrada"):
                 static_processing_ui.create()
+
+    static_processing_ui.create_config_form()
 
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)

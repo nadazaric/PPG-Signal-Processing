@@ -1,8 +1,9 @@
-import importlib.util
+import types
 from pathlib import Path
 
 import dearpygui.dearpygui as dpg
 
+from static import config_ui
 from static.processing import process_green_signal
 
 
@@ -11,6 +12,8 @@ STATIC_CONFIGS_DIR = BASE_DIR / "static_configs"
 
 CONFIG_COMBO_TAG = "static_config_combo"
 CONFIG_STATUS_TAG = "static_config_status"
+CONFIG_DETAILS_BUTTON_TAG = "static_config_details_button"
+CONFIG_DETAILS_TEXT_TAG = "static_config_details_text"
 
 ORIGINAL_GREEN_SERIES_TAG = "static_original_green_series"
 ORIGINAL_GREEN_X_AXIS_TAG = "static_original_green_x_axis"
@@ -27,6 +30,7 @@ state = {
     "processed_x_values": [],
     "processed_green": [],
     "config": None,
+    "config_name": None,
     "start_index": 0,
     "end_index": None,
 }
@@ -44,35 +48,106 @@ def find_static_configs():
 
 
 def load_static_config(config_name):
-    config_path = STATIC_CONFIGS_DIR / f"{config_name}.py"
+    config_path = (
+        STATIC_CONFIGS_DIR
+        / f"{config_name}.py"
+    )
 
     if not config_path.exists():
         raise FileNotFoundError(
             f"Konfiguracija ne postoji: {config_path}"
         )
 
-    module_name = f"static_config_{config_name}"
-
-    module_spec = importlib.util.spec_from_file_location(
-        module_name,
-        config_path,
+    config_module = types.ModuleType(
+        f"static_config_{config_name}"
     )
 
-    if module_spec is None or module_spec.loader is None:
-        raise ImportError(
-            f"Konfiguracija nije mogla biti ucitana: {config_path}"
-        )
+    config_content = config_path.read_text(
+        encoding="utf-8",
+    )
 
-    config_module = importlib.util.module_from_spec(module_spec)
-    module_spec.loader.exec_module(config_module)
+    exec(
+        compile(
+            config_content,
+            str(config_path),
+            "exec",
+        ),
+        config_module.__dict__,
+    )
 
     return config_module
 
 
+def update_config_status():
+    config = state["config"]
+    config_name = state["config_name"]
+
+    if config is None or config_name is None:
+        dpg.set_value(
+            CONFIG_STATUS_TAG,
+            "",
+        )
+
+        dpg.set_value(
+            CONFIG_DETAILS_TEXT_TAG,
+            "",
+        )
+
+        dpg.configure_item(
+            CONFIG_DETAILS_BUTTON_TAG,
+            show=False,
+        )
+        return
+
+    startup_trim_seconds = getattr(
+        config,
+        "STARTUP_TRIM_SECONDS",
+        0.0,
+    )
+
+    channel_subtraction = getattr(
+        config,
+        "CHANNEL_SUBTRACTION",
+        "none",
+    )
+
+    dpg.set_value(
+        CONFIG_DETAILS_TEXT_TAG,
+        (
+            "Uklanjanje pocetka: "
+            f"{startup_trim_seconds} s\n"
+            "Oduzimanje kanala: "
+            f"{channel_subtraction}"
+        ),
+    )
+
+    dpg.configure_item(
+        CONFIG_DETAILS_BUTTON_TAG,
+        show=True,
+    )
+
+
 def process_current_data():
     config = state["config"]
+    signals = state["signals"]
 
-    if config is None:
+    required_signals = (
+        "green",
+        "red",
+        "infrared",
+    )
+
+    has_all_signals = all(
+        signal_name in signals
+        and len(signals[signal_name]) > 0
+        for signal_name in required_signals
+    )
+
+    if (
+        config is None
+        or not state["x_values"]
+        or not has_all_signals
+    ):
         state["processed_x_values"] = []
         state["processed_green"] = []
         return
@@ -82,8 +157,57 @@ def process_current_data():
         state["processed_green"],
     ) = process_green_signal(
         state["x_values"],
-        state["signals"],
+        signals,
         config,
+    )
+
+
+def apply_runtime_config(
+    startup_trim_seconds,
+    channel_subtraction,
+):
+    config = state["config"]
+
+    if config is None:
+        raise ValueError(
+            "Nijedna konfiguracija nije izabrana."
+        )
+
+    config.STARTUP_TRIM_SECONDS = (
+        startup_trim_seconds
+    )
+
+    config.CHANNEL_SUBTRACTION = (
+        channel_subtraction
+    )
+
+    process_current_data()
+    update_plots()
+    update_config_status()
+
+
+def open_config_form(
+    sender=None,
+    app_data=None,
+    user_data=None,
+):
+    selected_config = dpg.get_value(
+        CONFIG_COMBO_TAG
+    )
+
+    if (
+        not selected_config
+        or state["config"] is None
+    ):
+        dpg.set_value(
+            CONFIG_STATUS_TAG,
+            "Prvo izaberi konfiguraciju.",
+        )
+        return
+
+    config_ui.open_config_form(
+        selected_config,
+        state["config"],
     )
 
 
@@ -120,13 +244,21 @@ def set_plot_data(
         ],
     )
 
-    dpg.fit_axis_data(x_axis_tag)
-    dpg.fit_axis_data(y_axis_tag)
+    dpg.fit_axis_data(
+        x_axis_tag,
+    )
+
+    dpg.fit_axis_data(
+        y_axis_tag,
+    )
 
 
 def update_plots():
     original_green = list(
-        state["signals"].get("green", [])
+        state["signals"].get(
+            "green",
+            [],
+        )
     )
 
     original_data_size = min(
@@ -150,6 +282,7 @@ def update_plots():
     visible_x_values = state["x_values"][
         start_index:end_index
     ]
+
     visible_original_green = original_green[
         start_index:end_index
     ]
@@ -197,12 +330,19 @@ def update_plots():
         len(state["processed_x_values"]),
     )
 
-    visible_processed_x = state["processed_x_values"][
-        processed_start_index:processed_end_index
-    ]
-    visible_processed_green = state["processed_green"][
-        processed_start_index:processed_end_index
-    ]
+    visible_processed_x = (
+        state["processed_x_values"][
+            processed_start_index:
+            processed_end_index
+        ]
+    )
+
+    visible_processed_green = (
+        state["processed_green"][
+            processed_start_index:
+            processed_end_index
+        ]
+    )
 
     set_plot_data(
         PROCESSED_GREEN_SERIES_TAG,
@@ -218,14 +358,27 @@ def select_static_config(
     app_data=None,
     user_data=None,
 ):
-    selected_config = dpg.get_value(CONFIG_COMBO_TAG)
+    selected_config = dpg.get_value(
+        CONFIG_COMBO_TAG
+    )
 
     if not selected_config:
         state["config"] = None
+        state["config_name"] = None
 
         dpg.set_value(
             CONFIG_STATUS_TAG,
             "Nije izabrana konfiguracija.",
+        )
+
+        dpg.set_value(
+            CONFIG_DETAILS_TEXT_TAG,
+            "",
+        )
+
+        dpg.configure_item(
+            CONFIG_DETAILS_BUTTON_TAG,
+            show=False,
         )
 
         process_current_data()
@@ -237,31 +390,34 @@ def select_static_config(
             selected_config,
         )
 
+        state["config_name"] = selected_config
+
         process_current_data()
         update_plots()
+        update_config_status()
 
-        startup_trim_seconds = getattr(
-            state["config"],
-            "STARTUP_TRIM_SECONDS",
-            0.0,
-        )
-
-        dpg.set_value(
-            CONFIG_STATUS_TAG,
-            (
-                f"Konfiguracija: {selected_config} | "
-                f"Uklonjen pocetak: "
-                f"{startup_trim_seconds} s"
-            ),
-        )
     except Exception as error:
         state["config"] = None
+        state["config_name"] = None
         state["processed_x_values"] = []
         state["processed_green"] = []
 
         dpg.set_value(
             CONFIG_STATUS_TAG,
-            f"Greska pri ucitavanju konfiguracije: {error}",
+            (
+                "Greska pri ucitavanju "
+                f"konfiguracije: {error}"
+            ),
+        )
+
+        dpg.set_value(
+            CONFIG_DETAILS_TEXT_TAG,
+            "",
+        )
+
+        dpg.configure_item(
+            CONFIG_DETAILS_BUTTON_TAG,
+            show=False,
         )
 
         update_plots()
@@ -282,6 +438,7 @@ def refresh_static_config_list(
 
     if not config_names:
         state["config"] = None
+        state["config_name"] = None
 
         dpg.set_value(
             CONFIG_COMBO_TAG,
@@ -293,13 +450,28 @@ def refresh_static_config_list(
             "Nema dostupnih konfiguracija.",
         )
 
+        dpg.set_value(
+            CONFIG_DETAILS_TEXT_TAG,
+            "",
+        )
+
+        dpg.configure_item(
+            CONFIG_DETAILS_BUTTON_TAG,
+            show=False,
+        )
+
         process_current_data()
         update_plots()
         return
 
-    selected_config = dpg.get_value(CONFIG_COMBO_TAG)
+    selected_config = dpg.get_value(
+        CONFIG_COMBO_TAG
+    )
 
-    if select_first or selected_config not in config_names:
+    if (
+        select_first
+        or selected_config not in config_names
+    ):
         dpg.set_value(
             CONFIG_COMBO_TAG,
             config_names[0],
@@ -308,19 +480,29 @@ def refresh_static_config_list(
     select_static_config()
 
 
-def set_data(x_values, signals):
+def set_data(
+    x_values,
+    signals,
+):
     state["x_values"] = list(x_values)
     state["signals"] = signals
     state["start_index"] = 0
-    state["end_index"] = len(state["x_values"])
+    state["end_index"] = len(
+        state["x_values"]
+    )
 
     process_current_data()
     update_plots()
 
 
-def create_line_theme(color, line_weight):
+def create_line_theme(
+    color,
+    line_weight,
+):
     with dpg.theme() as line_theme:
-        with dpg.theme_component(dpg.mvLineSeries):
+        with dpg.theme_component(
+            dpg.mvLineSeries
+        ):
             dpg.add_theme_color(
                 dpg.mvPlotCol_Line,
                 color,
@@ -388,7 +570,9 @@ def create():
         border=True,
     ):
         with dpg.group(horizontal=True):
-            dpg.add_text("Konfiguracija:")
+            dpg.add_text(
+                "Konfiguracija:"
+            )
 
             dpg.add_combo(
                 [],
@@ -402,14 +586,28 @@ def create():
                 callback=refresh_static_config_list,
             )
 
-        dpg.add_spacer(height=6)
+            dpg.add_button(
+                label="Izmijeni",
+                callback=open_config_form,
+            )
 
-        dpg.add_text(
-            "",
-            tag=CONFIG_STATUS_TAG,
+            dpg.add_button(
+                label="Detalji",
+                tag=CONFIG_DETAILS_BUTTON_TAG,
+                show=False,
+            )
+
+            with dpg.tooltip(
+                    parent=CONFIG_DETAILS_BUTTON_TAG,
+            ):
+                dpg.add_text(
+                    "",
+                    tag=CONFIG_DETAILS_TEXT_TAG,
+                )
+
+        dpg.add_spacer(
+            height=6,
         )
-
-        dpg.add_spacer(height=6)
 
         create_signal_plot(
             label="Original Green signal",
@@ -419,7 +617,9 @@ def create():
             y_axis_tag=ORIGINAL_GREEN_Y_AXIS_TAG,
         )
 
-        dpg.add_spacer(height=10)
+        dpg.add_spacer(
+            height=10,
+        )
 
         create_signal_plot(
             label="Processed Green signal",
@@ -445,11 +645,22 @@ def create():
 
     update_plots()
 
-def set_visible_range(start_index, end_index):
+
+def create_config_form():
+    config_ui.create(
+        on_apply=apply_runtime_config,
+    )
+
+
+def set_visible_range(
+    start_index,
+    end_index,
+):
     state["start_index"] = max(
         0,
         start_index,
     )
+
     state["end_index"] = max(
         state["start_index"],
         end_index,
