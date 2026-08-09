@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+from static import ui as static_processing_ui
 
 import dearpygui.dearpygui as dpg
 
@@ -124,6 +125,8 @@ def update_plots():
     start, end = visible_range()
     x_visible = state["x"][start:end]
 
+    static_processing_ui.set_visible_range(start, end)
+
     if not x_visible:
         for signal_name in SIGNAL_COLUMNS:
             dpg.set_value(f"{signal_name}_series", [[], []])
@@ -168,6 +171,10 @@ def load_selected_file(sender=None, app_data=None, user_data=None):
     path = DATA_DIR / selected_name
     try:
         x_values, signals = load_ppg_csv(path)
+        static_processing_ui.set_data(
+            x_values,
+            signals,
+        )
     except Exception as exc:
         dpg.set_value("status_text", f"Greska pri ucitavanju: {exc}")
         return
@@ -304,6 +311,8 @@ def build_ui():
                         "Green - srednja vrednost Red i Infrared",
                         filtered_mean_theme,
                     )
+            with dpg.tab(label="Staticka obrada"):
+                static_processing_ui.create()
 
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
@@ -317,6 +326,7 @@ def build_ui():
 def main():
     build_ui()
     dpg.show_viewport()
+    dpg.maximize_viewport()
     dpg.start_dearpygui()
     dpg.destroy_context()
 
