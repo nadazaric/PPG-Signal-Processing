@@ -91,6 +91,7 @@ def update_config_status():
         f"Range detekcija artefakata: {config_value(config, 'RANGE_ARTIFACT_DETECTION_ENABLED', False)}\n"
         f"Prozor za range: {config_value(config, 'ARTIFACT_RANGE_WINDOW_SECONDS')} s\n"
         f"Faktor praga za range: {config_value(config, 'ARTIFACT_RANGE_THRESHOLD_FACTOR')}"
+        f"Normalizacija: {config_value(config, 'NORMALIZATION_TYPE', 'none')}"
     )
 
     dpg.set_value(CONFIG_DETAILS_TEXT_TAG, details)
@@ -135,6 +136,7 @@ def apply_runtime_config(
     range_artifact_detection_enabled,
     artifact_range_window_seconds,
     artifact_range_threshold_factor,
+    normalization_type,
 ):
     config = state["config"]
 
@@ -156,6 +158,7 @@ def apply_runtime_config(
     config.RANGE_ARTIFACT_DETECTION_ENABLED = range_artifact_detection_enabled
     config.ARTIFACT_RANGE_WINDOW_SECONDS = artifact_range_window_seconds
     config.ARTIFACT_RANGE_THRESHOLD_FACTOR = artifact_range_threshold_factor
+    config.NORMALIZATION_TYPE = normalization_type
 
     process_current_data()
     update_plots()

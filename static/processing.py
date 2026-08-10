@@ -1,4 +1,5 @@
 import numpy as np
+from numpy import median
 from scipy.signal import firwin
 
 
@@ -253,6 +254,44 @@ def detect_artifact_samples(
     return valid_samples
 
 
+def normalize_signal(signal_values, valid_samples, normalization_type):
+    if normalization_type == "none":
+        return signal_values
+
+    valid_values = [value for value, is_valid in zip(signal_values, valid_samples) if is_valid]
+
+    if len(valid_values) == 0:
+        return signal_values
+
+    if normalization_type == "robust_z_score":
+        return normalize_with_robust_z_score(signal_values, valid_values)
+
+    if normalization_type == "min_max":
+        return normalize_with_min_max(signal_values, valid_values)
+
+    return signal_values
+
+
+def normalize_with_robust_z_score(signal_values, valid_values):
+    median_value = median(valid_values)
+    deviations = [abs(value - median_value) for value in valid_values]
+    mad_value = median(deviations)
+
+    robust_std = 1.4826 * mad_value
+    return [(value - median_value) / robust_std for value in signal_values]
+
+
+def normalize_with_min_max(signal_values, valid_values):
+    min_value = min(valid_values)
+    max_value = max(valid_values)
+
+    if min_value == max_value:
+        return signal_values
+
+    normalized_values = [(value - min_value) / (max_value - min_value) for value in signal_values]
+    return [min(1.0, max(0.0, value)) for value in normalized_values]
+
+
 # Applies all configured processing steps to the Green signal.
 def process_green_signal(x_values, signals, config):
     processed_x_values = list(x_values)
@@ -311,5 +350,7 @@ def process_green_signal(x_values, signals, config):
             range_window_seconds=getattr(config, "ARTIFACT_RANGE_WINDOW_SECONDS", 0.5),
             range_threshold_factor=getattr(config, "ARTIFACT_RANGE_THRESHOLD_FACTOR", 6.0),
         )
+
+    processed_green = normalize_signal(processed_green, valid_samples, config.NORMALIZATION_TYPE)
 
     return processed_x_values, processed_green, valid_samples
