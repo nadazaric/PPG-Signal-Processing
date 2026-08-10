@@ -3,6 +3,7 @@ import dearpygui.dearpygui as dpg
 
 CONFIG_WINDOW_TAG = "static_config_window"
 CONFIG_NAME_TAG = "static_config_name"
+INVERT_PROCESSED_SIGNAL_INPUT_TAG = "static_config_invert_processed_signal"
 
 STARTUP_TRIM_INPUT_TAG = "static_config_startup_trim"
 CHANNEL_SUBTRACTION_INPUT_TAG = "static_config_channel_subtraction"
@@ -118,6 +119,7 @@ def apply_config(sender=None, app_data=None, user_data=None):
         artifact_range_window_seconds = read_float(ARTIFACT_RANGE_WINDOW_SECONDS_INPUT_TAG)
         artifact_range_threshold_factor = read_float(ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG)
         normalization_type = dpg.get_value(NORMALIZATION_TYPE_INPUT_TAG)
+        invert_processed_signal = dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG)
 
         validate_config_values(
             startup_trim_seconds,
@@ -151,7 +153,8 @@ def apply_config(sender=None, app_data=None, user_data=None):
             range_artifact_detection_enabled,
             artifact_range_window_seconds,
             artifact_range_threshold_factor,
-            normalization_type
+            normalization_type,
+            invert_processed_signal,
         )
 
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
@@ -309,6 +312,8 @@ def add_basic_settings():
         "%.2f",
     )
 
+    add_checkbox_row("Invertuj obradjeni signal", INVERT_PROCESSED_SIGNAL_INPUT_TAG)
+
 
 def add_filter_settings():
     add_combo_row(
@@ -442,6 +447,7 @@ def open_config_form(config_name, config):
     dpg.set_value(ARTIFACT_RANGE_WINDOW_SECONDS_INPUT_TAG, float(getattr(config, "ARTIFACT_RANGE_WINDOW_SECONDS", 0.5)))
     dpg.set_value(ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG, float(getattr(config, "ARTIFACT_RANGE_THRESHOLD_FACTOR", 6.0)))
     dpg.set_value(NORMALIZATION_TYPE_INPUT_TAG, getattr(config, "NORMALIZATION_TYPE", "none"))
+    dpg.set_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG, getattr(config, "INVERT_PROCESSED_SIGNAL", False))
 
     update_filter_inputs()
     update_artifact_inputs()

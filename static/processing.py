@@ -292,6 +292,9 @@ def normalize_with_min_max(signal_values, valid_values):
     return [min(1.0, max(0.0, value)) for value in normalized_values]
 
 
+def invert_signal(signal_values):
+    return [-value for value in signal_values]
+
 # Applies all configured processing steps to the Green signal.
 def process_green_signal(x_values, signals, config):
     processed_x_values = list(x_values)
@@ -352,5 +355,8 @@ def process_green_signal(x_values, signals, config):
         )
 
     processed_green = normalize_signal(processed_green, valid_samples, config.NORMALIZATION_TYPE)
+
+    if getattr(config, "INVERT_PROCESSED_SIGNAL", False):
+        processed_green = invert_signal(processed_green)
 
     return processed_x_values, processed_green, valid_samples

@@ -80,6 +80,7 @@ def update_config_status():
         f"Oduzimanje kanala: {config.CHANNEL_SUBTRACTION}\n"
         f"Tip filtera: {config.FILTER_TYPE}\n"
         f"Frekvencija uzorkovanja: {config.SAMPLING_FREQUENCY_HZ} Hz\n"
+        f"Invertovan signal: {config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}"
         f"Donja granicna frekvencija: {config.LOWER_CUTOFF_FREQUENCY_HZ} Hz\n"
         f"Gornja granicna frekvencija: {config.UPPER_CUTOFF_FREQUENCY_HZ} Hz\n"
         f"Broj koeficijenata: {config.FILTER_COEFFICIENT_COUNT}\n"
@@ -137,6 +138,7 @@ def apply_runtime_config(
     artifact_range_window_seconds,
     artifact_range_threshold_factor,
     normalization_type,
+    invert_processed_signal,
 ):
     config = state["config"]
 
@@ -159,6 +161,7 @@ def apply_runtime_config(
     config.ARTIFACT_RANGE_WINDOW_SECONDS = artifact_range_window_seconds
     config.ARTIFACT_RANGE_THRESHOLD_FACTOR = artifact_range_threshold_factor
     config.NORMALIZATION_TYPE = normalization_type
+    config.INVERT_PROCESSED_SIGNAL = invert_processed_signal
 
     process_current_data()
     update_plots()
