@@ -99,25 +99,25 @@ def update_config_status():
         )
         return
 
-    startup_trim_seconds = getattr(
-        config,
-        "STARTUP_TRIM_SECONDS",
-        0.0,
-    )
-
-    channel_subtraction = getattr(
-        config,
-        "CHANNEL_SUBTRACTION",
-        "none",
-    )
-
     dpg.set_value(
         CONFIG_DETAILS_TEXT_TAG,
         (
-            "Uklanjanje pocetka: "
-            f"{startup_trim_seconds} s\n"
+            "Uklanjanje početka: "
+            f"{config.STARTUP_TRIM_SECONDS} s\n"
             "Oduzimanje kanala: "
-            f"{channel_subtraction}"
+            f"{config.CHANNEL_SUBTRACTION}\n"
+            "Tip filtera: "
+            f"{config.FILTER_TYPE}\n"
+            "Frekvencija uzorkovanja: "
+            f"{config.SAMPLING_FREQUENCY_HZ} Hz\n"
+            "Donja granična frekvencija: "
+            f"{config.LOWER_CUTOFF_FREQUENCY_HZ} Hz\n"
+            "Gornja granična frekvencija: "
+            f"{config.UPPER_CUTOFF_FREQUENCY_HZ} Hz\n"
+            "Broj koeficijenata: "
+            f"{config.FILTER_COEFFICIENT_COUNT}\n"
+            "Tip prozora: "
+            f"{config.FILTER_WINDOW_TYPE}"
         ),
     )
 
@@ -165,6 +165,12 @@ def process_current_data():
 def apply_runtime_config(
     startup_trim_seconds,
     channel_subtraction,
+    filter_type,
+    sampling_frequency,
+    lower_cutoff_frequency,
+    upper_cutoff_frequency,
+    filter_coefficient_count,
+    filter_window_type,
 ):
     config = state["config"]
 
@@ -179,6 +185,30 @@ def apply_runtime_config(
 
     config.CHANNEL_SUBTRACTION = (
         channel_subtraction
+    )
+
+    config.FILTER_TYPE = (
+        filter_type
+    )
+
+    config.SAMPLING_FREQUENCY_HZ = (
+        sampling_frequency
+    )
+
+    config.LOWER_CUTOFF_FREQUENCY_HZ = (
+        lower_cutoff_frequency
+    )
+
+    config.UPPER_CUTOFF_FREQUENCY_HZ = (
+        upper_cutoff_frequency
+    )
+
+    config.FILTER_COEFFICIENT_COUNT = (
+        filter_coefficient_count
+    )
+
+    config.FILTER_WINDOW_TYPE = (
+        filter_window_type
     )
 
     process_current_data()
@@ -528,7 +558,7 @@ def create_signal_plot(
     with dpg.plot(
         label=label,
         width=-1,
-        height=350,
+        height=250,
     ):
         dpg.add_plot_legend()
 
@@ -561,7 +591,7 @@ def create():
 
     processed_green_theme = create_line_theme(
         color=(255, 215, 0, 255),
-        line_weight=2.5,
+        line_weight=2.0,
     )
 
     with dpg.child_window(

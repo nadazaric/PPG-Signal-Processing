@@ -1,2 +1,3 @@
 dpg
 dearpygui
+scipy
