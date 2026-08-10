@@ -1,6 +1,6 @@
 import numpy as np
 from numpy import median
-from scipy.signal import firwin
+from scipy.signal import find_peaks, firwin
 
 
 # Removes the unstable part from the start of the signal.
@@ -295,6 +295,49 @@ def normalize_with_min_max(signal_values, valid_values):
 def invert_signal(signal_values):
     return [-value for value in signal_values]
 
+
+def calculate_peak_prominence(signal_values, valid_samples, prominence_factor):
+    reference_values = signal_values[valid_samples]
+
+    if len(reference_values) == 0:
+        return None
+
+    signal_range = np.max(reference_values) - np.min(reference_values)
+
+    if signal_range == 0:
+        return None
+
+    return prominence_factor * signal_range
+
+
+def detect_peak_indices(signal_values, valid_samples, config):
+    if not getattr(config, "PEAK_DETECTION_ENABLED", False):
+        return []
+
+    signal_values = np.asarray(signal_values, dtype=float)
+    valid_samples = np.asarray(valid_samples, dtype=bool)
+
+    if len(signal_values) == 0 or not np.any(valid_samples):
+        return []
+
+    distance = None
+
+    if getattr(config, "PEAK_MIN_DISTANCE_ENABLED", True):
+        distance = max(1, int(round(config.PEAK_MIN_DISTANCE_SECONDS * config.SAMPLING_FREQUENCY_HZ)))
+
+    prominence = None
+
+    if getattr(config, "PEAK_PROMINENCE_ENABLED", True):
+        prominence = calculate_peak_prominence(signal_values, valid_samples, config.PEAK_PROMINENCE_FACTOR)
+
+    peak_signal = signal_values.copy()
+    peak_signal[~valid_samples] = -np.inf
+
+    peak_indices, _ = find_peaks(peak_signal, distance=distance, prominence=prominence)
+
+    return [int(peak_index) for peak_index in peak_indices if valid_samples[peak_index]]
+
+
 # Applies all configured processing steps to the Green signal.
 def process_green_signal(x_values, signals, config):
     processed_x_values = list(x_values)
@@ -359,4 +402,6 @@ def process_green_signal(x_values, signals, config):
     if getattr(config, "INVERT_PROCESSED_SIGNAL", False):
         processed_green = invert_signal(processed_green)
 
-    return processed_x_values, processed_green, valid_samples
+    peak_indices = detect_peak_indices(processed_green, valid_samples, config)
+
+    return processed_x_values, processed_green, valid_samples, peak_indices

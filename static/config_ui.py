@@ -3,7 +3,6 @@ import dearpygui.dearpygui as dpg
 
 CONFIG_WINDOW_TAG = "static_config_window"
 CONFIG_NAME_TAG = "static_config_name"
-INVERT_PROCESSED_SIGNAL_INPUT_TAG = "static_config_invert_processed_signal"
 
 STARTUP_TRIM_INPUT_TAG = "static_config_startup_trim"
 CHANNEL_SUBTRACTION_INPUT_TAG = "static_config_channel_subtraction"
@@ -23,12 +22,19 @@ RANGE_ARTIFACT_DETECTION_ENABLED_INPUT_TAG = "static_config_range_artifact_detec
 ARTIFACT_RANGE_WINDOW_SECONDS_INPUT_TAG = "static_config_artifact_range_window_seconds"
 ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG = "static_config_artifact_range_threshold_factor"
 
+NORMALIZATION_TYPE_INPUT_TAG = "static_config_normalization_type"
+INVERT_PROCESSED_SIGNAL_INPUT_TAG = "static_config_invert_processed_signal"
+
+PEAK_DETECTION_ENABLED_INPUT_TAG = "static_config_peak_detection_enabled"
+PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG = "static_config_peak_min_distance_enabled"
+PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG = "static_config_peak_min_distance_seconds"
+PEAK_PROMINENCE_ENABLED_INPUT_TAG = "static_config_peak_prominence_enabled"
+PEAK_PROMINENCE_FACTOR_INPUT_TAG = "static_config_peak_prominence_factor"
+
 CONFIG_FORM_STATUS_TAG = "static_config_form_status"
 
-NORMALIZATION_TYPE_INPUT_TAG = "static_config_normalization_type"
-
 CONFIG_WINDOW_WIDTH = 500
-CONFIG_WINDOW_HEIGHT = 520
+CONFIG_WINDOW_HEIGHT = 620
 CONFIG_INPUT_WIDTH = 210
 
 CHANNEL_SUBTRACTION_OPTIONS = (
@@ -54,7 +60,7 @@ FILTER_WINDOW_OPTIONS = (
 NORMALIZATION_OPTIONS = (
     "none",
     "robust_z_score",
-    "min_max"
+    "min_max",
 )
 
 state = {
@@ -88,6 +94,17 @@ def update_artifact_inputs(sender=None, app_data=None, user_data=None):
     dpg.configure_item(ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG, enabled=range_inputs_enabled)
 
 
+def update_peak_inputs(sender=None, app_data=None, user_data=None):
+    peak_detection_enabled = bool(dpg.get_value(PEAK_DETECTION_ENABLED_INPUT_TAG))
+    min_distance_enabled = peak_detection_enabled and bool(dpg.get_value(PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG))
+    prominence_enabled = peak_detection_enabled and bool(dpg.get_value(PEAK_PROMINENCE_ENABLED_INPUT_TAG))
+
+    dpg.configure_item(PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG, enabled=peak_detection_enabled)
+    dpg.configure_item(PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG, enabled=min_distance_enabled)
+    dpg.configure_item(PEAK_PROMINENCE_ENABLED_INPUT_TAG, enabled=peak_detection_enabled)
+    dpg.configure_item(PEAK_PROMINENCE_FACTOR_INPUT_TAG, enabled=prominence_enabled)
+
+
 def read_float(tag):
     return float(dpg.get_value(tag))
 
@@ -119,7 +136,12 @@ def apply_config(sender=None, app_data=None, user_data=None):
         artifact_range_window_seconds = read_float(ARTIFACT_RANGE_WINDOW_SECONDS_INPUT_TAG)
         artifact_range_threshold_factor = read_float(ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG)
         normalization_type = dpg.get_value(NORMALIZATION_TYPE_INPUT_TAG)
-        invert_processed_signal = dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG)
+        invert_processed_signal = bool(dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG))
+        peak_detection_enabled = bool(dpg.get_value(PEAK_DETECTION_ENABLED_INPUT_TAG))
+        peak_min_distance_enabled = bool(dpg.get_value(PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG))
+        peak_min_distance_seconds = read_float(PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG)
+        peak_prominence_enabled = bool(dpg.get_value(PEAK_PROMINENCE_ENABLED_INPUT_TAG))
+        peak_prominence_factor = read_float(PEAK_PROMINENCE_FACTOR_INPUT_TAG)
 
         validate_config_values(
             startup_trim_seconds,
@@ -134,7 +156,9 @@ def apply_config(sender=None, app_data=None, user_data=None):
             artifact_padding_seconds,
             artifact_range_window_seconds,
             artifact_range_threshold_factor,
-            normalization_type
+            normalization_type,
+            peak_min_distance_seconds,
+            peak_prominence_factor,
         )
 
         on_apply(
@@ -155,6 +179,11 @@ def apply_config(sender=None, app_data=None, user_data=None):
             artifact_range_threshold_factor,
             normalization_type,
             invert_processed_signal,
+            peak_detection_enabled,
+            peak_min_distance_enabled,
+            peak_min_distance_seconds,
+            peak_prominence_enabled,
+            peak_prominence_factor,
         )
 
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
@@ -176,7 +205,9 @@ def validate_config_values(
     artifact_padding_seconds,
     artifact_range_window_seconds,
     artifact_range_threshold_factor,
-    normalization_type
+    normalization_type,
+    peak_min_distance_seconds,
+    peak_prominence_factor,
 ):
     if startup_trim_seconds < 0:
         raise ValueError("Vrijeme uklanjanja pocetka ne moze biti negativno.")
@@ -233,6 +264,12 @@ def validate_config_values(
 
     if normalization_type not in NORMALIZATION_OPTIONS:
         raise ValueError("Izabran je nepodrzan tip normalizacije.")
+
+    if peak_min_distance_seconds <= 0:
+        raise ValueError("Minimalno rastojanje izmedju vrhova mora biti vece od nule.")
+
+    if peak_prominence_factor <= 0:
+        raise ValueError("Faktor prominence mora biti veci od nule.")
 
 
 def close_config_form(sender=None, app_data=None, user_data=None):
@@ -390,6 +427,32 @@ def add_normalization_settings():
     add_combo_row("Tip normalizacije", NORMALIZATION_OPTIONS, NORMALIZATION_TYPE_INPUT_TAG)
 
 
+def add_peak_detection_settings():
+    add_checkbox_row("Detekcija vrhova", PEAK_DETECTION_ENABLED_INPUT_TAG, update_peak_inputs)
+
+    add_checkbox_row(
+        "Koristi minimalno rastojanje",
+        PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG,
+        update_peak_inputs,
+    )
+
+    add_float_row(
+        "Minimalno rastojanje [s]",
+        PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG,
+        0.01,
+        "%.2f",
+    )
+
+    add_checkbox_row("Koristi prominence", PEAK_PROMINENCE_ENABLED_INPUT_TAG, update_peak_inputs)
+
+    add_float_row(
+        "Faktor prominence",
+        PEAK_PROMINENCE_FACTOR_INPUT_TAG,
+        0.01,
+        "%.2f",
+    )
+
+
 def create(on_apply):
     state["on_apply"] = on_apply
 
@@ -406,7 +469,7 @@ def create(on_apply):
         dpg.add_text("", tag=CONFIG_NAME_TAG)
         dpg.add_spacer(height=4)
 
-        with dpg.collapsing_header(label="Osnovna obrada", default_open=True):
+        with dpg.collapsing_header(label="Opste", default_open=True):
             add_config_table(add_basic_settings)
 
         with dpg.collapsing_header(label="Filter", default_open=True):
@@ -417,6 +480,9 @@ def create(on_apply):
 
         with dpg.collapsing_header(label="Normalizacija", default_open=True):
             add_config_table(add_normalization_settings)
+
+        with dpg.collapsing_header(label="Vrhovi", default_open=True):
+            add_config_table(add_peak_detection_settings)
 
         dpg.add_spacer(height=8)
         dpg.add_text("", tag=CONFIG_FORM_STATUS_TAG, color=(239, 68, 68, 255), wrap=460)
@@ -447,10 +513,16 @@ def open_config_form(config_name, config):
     dpg.set_value(ARTIFACT_RANGE_WINDOW_SECONDS_INPUT_TAG, float(getattr(config, "ARTIFACT_RANGE_WINDOW_SECONDS", 0.5)))
     dpg.set_value(ARTIFACT_RANGE_THRESHOLD_FACTOR_INPUT_TAG, float(getattr(config, "ARTIFACT_RANGE_THRESHOLD_FACTOR", 6.0)))
     dpg.set_value(NORMALIZATION_TYPE_INPUT_TAG, getattr(config, "NORMALIZATION_TYPE", "none"))
-    dpg.set_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG, getattr(config, "INVERT_PROCESSED_SIGNAL", False))
+    dpg.set_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG, bool(getattr(config, "INVERT_PROCESSED_SIGNAL", False)))
+    dpg.set_value(PEAK_DETECTION_ENABLED_INPUT_TAG, bool(getattr(config, "PEAK_DETECTION_ENABLED", False)))
+    dpg.set_value(PEAK_MIN_DISTANCE_ENABLED_INPUT_TAG, bool(getattr(config, "PEAK_MIN_DISTANCE_ENABLED", True)))
+    dpg.set_value(PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG, float(getattr(config, "PEAK_MIN_DISTANCE_SECONDS", 0.4)))
+    dpg.set_value(PEAK_PROMINENCE_ENABLED_INPUT_TAG, bool(getattr(config, "PEAK_PROMINENCE_ENABLED", True)))
+    dpg.set_value(PEAK_PROMINENCE_FACTOR_INPUT_TAG, float(getattr(config, "PEAK_PROMINENCE_FACTOR", 0.6)))
 
     update_filter_inputs()
     update_artifact_inputs()
+    update_peak_inputs()
 
     dpg.set_value(CONFIG_FORM_STATUS_TAG, "")
     dpg.configure_item(CONFIG_WINDOW_TAG, show=True)

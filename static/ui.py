@@ -23,6 +23,7 @@ PROCESSED_GREEN_SERIES_TAG = "static_processed_green_series"
 PROCESSED_GREEN_X_AXIS_TAG = "static_processed_green_x_axis"
 PROCESSED_GREEN_Y_AXIS_TAG = "static_processed_green_y_axis"
 PROCESSED_ARTIFACT_SERIES_TAG = "static_processed_artifact_series"
+PROCESSED_PEAK_SERIES_TAG = "static_processed_peak_series"
 
 state = {
     "x_values": [],
@@ -30,6 +31,7 @@ state = {
     "processed_x_values": [],
     "processed_green": [],
     "valid_samples": [],
+    "peak_indices": [],
     "config": None,
     "config_name": None,
     "start_index": 0,
@@ -80,7 +82,7 @@ def update_config_status():
         f"Oduzimanje kanala: {config.CHANNEL_SUBTRACTION}\n"
         f"Tip filtera: {config.FILTER_TYPE}\n"
         f"Frekvencija uzorkovanja: {config.SAMPLING_FREQUENCY_HZ} Hz\n"
-        f"Invertovan signal: {config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}"
+        f"Invertovan signal: {config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}\n"
         f"Donja granicna frekvencija: {config.LOWER_CUTOFF_FREQUENCY_HZ} Hz\n"
         f"Gornja granicna frekvencija: {config.UPPER_CUTOFF_FREQUENCY_HZ} Hz\n"
         f"Broj koeficijenata: {config.FILTER_COEFFICIENT_COUNT}\n"
@@ -91,8 +93,13 @@ def update_config_status():
         f"Prosirenje artefakta: {config_value(config, 'ARTIFACT_PADDING_SECONDS')} s\n"
         f"Range detekcija artefakata: {config_value(config, 'RANGE_ARTIFACT_DETECTION_ENABLED', False)}\n"
         f"Prozor za range: {config_value(config, 'ARTIFACT_RANGE_WINDOW_SECONDS')} s\n"
-        f"Faktor praga za range: {config_value(config, 'ARTIFACT_RANGE_THRESHOLD_FACTOR')}"
-        f"Normalizacija: {config_value(config, 'NORMALIZATION_TYPE', 'none')}"
+        f"Faktor praga za range: {config_value(config, 'ARTIFACT_RANGE_THRESHOLD_FACTOR')}\n"
+        f"Normalizacija: {config_value(config, 'NORMALIZATION_TYPE', 'none')}\n"
+        f"Detekcija vrhova: {config_value(config, 'PEAK_DETECTION_ENABLED', False)}\n"
+        f"Koristi minimalno rastojanje: {config_value(config, 'PEAK_MIN_DISTANCE_ENABLED', True)}\n"
+        f"Minimalno rastojanje izmedju vrhova: {config_value(config, 'PEAK_MIN_DISTANCE_SECONDS', 0.4)} s\n"
+        f"Koristi prominence: {config_value(config, 'PEAK_PROMINENCE_ENABLED', True)}\n"
+        f"Faktor prominence: {config_value(config, 'PEAK_PROMINENCE_FACTOR', 0.6)}"
     )
 
     dpg.set_value(CONFIG_DETAILS_TEXT_TAG, details)
@@ -112,13 +119,14 @@ def process_current_data():
         state["processed_x_values"] = []
         state["processed_green"] = []
         state["valid_samples"] = []
+        state["peak_indices"] = []
         return
 
-    (
-        state["processed_x_values"],
-        state["processed_green"],
-        state["valid_samples"],
-    ) = process_green_signal(state["x_values"], signals, config)
+    processing_result = process_green_signal(state["x_values"], signals, config)
+    state["processed_x_values"] = processing_result[0]
+    state["processed_green"] = processing_result[1]
+    state["valid_samples"] = processing_result[2]
+    state["peak_indices"] = processing_result[3] if len(processing_result) > 3 else []
 
 
 def apply_runtime_config(
@@ -139,6 +147,11 @@ def apply_runtime_config(
     artifact_range_threshold_factor,
     normalization_type,
     invert_processed_signal,
+    peak_detection_enabled,
+    peak_min_distance_enabled,
+    peak_min_distance_seconds,
+    peak_prominence_enabled,
+    peak_prominence_factor,
 ):
     config = state["config"]
 
@@ -162,6 +175,11 @@ def apply_runtime_config(
     config.ARTIFACT_RANGE_THRESHOLD_FACTOR = artifact_range_threshold_factor
     config.NORMALIZATION_TYPE = normalization_type
     config.INVERT_PROCESSED_SIGNAL = invert_processed_signal
+    config.PEAK_DETECTION_ENABLED = peak_detection_enabled
+    config.PEAK_MIN_DISTANCE_ENABLED = peak_min_distance_enabled
+    config.PEAK_MIN_DISTANCE_SECONDS = peak_min_distance_seconds
+    config.PEAK_PROMINENCE_ENABLED = peak_prominence_enabled
+    config.PEAK_PROMINENCE_FACTOR = peak_prominence_factor
 
     process_current_data()
     update_plots()
@@ -204,6 +222,14 @@ def clear_processed_plot():
 
     set_plot_data(
         PROCESSED_ARTIFACT_SERIES_TAG,
+        PROCESSED_GREEN_X_AXIS_TAG,
+        PROCESSED_GREEN_Y_AXIS_TAG,
+        [],
+        [],
+    )
+
+    set_plot_data(
+        PROCESSED_PEAK_SERIES_TAG,
         PROCESSED_GREEN_X_AXIS_TAG,
         PROCESSED_GREEN_Y_AXIS_TAG,
         [],
@@ -270,6 +296,8 @@ def update_plots():
         processed_end_index,
     )
 
+    update_peak_plot(processed_start_index, processed_end_index)
+
 
 def update_artifact_plot(
     visible_processed_x,
@@ -318,6 +346,40 @@ def update_artifact_plot(
     )
 
 
+def update_peak_plot(processed_start_index, processed_end_index):
+    config = state["config"]
+    show_peaks = config is not None and getattr(config, "PEAK_DETECTION_ENABLED", False)
+
+    if not show_peaks:
+        set_plot_data(
+            PROCESSED_PEAK_SERIES_TAG,
+            PROCESSED_GREEN_X_AXIS_TAG,
+            PROCESSED_GREEN_Y_AXIS_TAG,
+            [],
+            [],
+        )
+
+        return
+
+    peak_x_values = []
+    peak_y_values = []
+
+    for peak_index in state["peak_indices"]:
+        if peak_index < processed_start_index or peak_index >= processed_end_index:
+            continue
+
+        peak_x_values.append(state["processed_x_values"][peak_index])
+        peak_y_values.append(state["processed_green"][peak_index])
+
+    set_plot_data(
+        PROCESSED_PEAK_SERIES_TAG,
+        PROCESSED_GREEN_X_AXIS_TAG,
+        PROCESSED_GREEN_Y_AXIS_TAG,
+        peak_x_values,
+        peak_y_values,
+    )
+
+
 def select_static_config(sender=None, app_data=None, user_data=None):
     selected_config = dpg.get_value(CONFIG_COMBO_TAG)
 
@@ -344,6 +406,7 @@ def select_static_config(sender=None, app_data=None, user_data=None):
         state["processed_x_values"] = []
         state["processed_green"] = []
         state["valid_samples"] = []
+        state["peak_indices"] = []
         dpg.set_value(CONFIG_STATUS_TAG, f"Greska pri ucitavanju konfiguracije: {error}")
         dpg.set_value(CONFIG_DETAILS_TEXT_TAG, "")
         dpg.configure_item(CONFIG_DETAILS_BUTTON_TAG, show=False)
@@ -409,6 +472,7 @@ def create_signal_plot(
     x_axis_tag,
     y_axis_tag,
     artifact_series_tag=None,
+    peak_series_tag=None,
 ):
     with dpg.plot(label=label, width=-1, height=250):
         dpg.add_plot_legend()
@@ -419,11 +483,15 @@ def create_signal_plot(
         if artifact_series_tag is not None:
             dpg.add_scatter_series([], [], label="Invalid samples", parent=y_axis_tag, tag=artifact_series_tag)
 
+        if peak_series_tag is not None:
+            dpg.add_scatter_series([], [], label="Peaks", parent=y_axis_tag, tag=peak_series_tag)
+
 
 def create():
     original_green_theme = create_line_theme((34, 197, 94, 255), 2.0)
     processed_green_theme = create_line_theme((255, 215, 0, 255), 2.0)
     artifact_theme = create_scatter_theme((239, 68, 68, 255), 4.0)
+    peak_theme = create_scatter_theme((59, 130, 246, 255), 5.0)
 
     with dpg.child_window(width=-1, height=-1, border=True):
         with dpg.group(horizontal=True):
@@ -460,11 +528,13 @@ def create():
             x_axis_tag=PROCESSED_GREEN_X_AXIS_TAG,
             y_axis_tag=PROCESSED_GREEN_Y_AXIS_TAG,
             artifact_series_tag=PROCESSED_ARTIFACT_SERIES_TAG,
+            peak_series_tag=PROCESSED_PEAK_SERIES_TAG,
         )
 
     dpg.bind_item_theme(ORIGINAL_GREEN_SERIES_TAG, original_green_theme)
     dpg.bind_item_theme(PROCESSED_GREEN_SERIES_TAG, processed_green_theme)
     dpg.bind_item_theme(PROCESSED_ARTIFACT_SERIES_TAG, artifact_theme)
+    dpg.bind_item_theme(PROCESSED_PEAK_SERIES_TAG, peak_theme)
 
     refresh_static_config_list(select_first=True)
     update_plots()
