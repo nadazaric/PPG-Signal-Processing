@@ -338,6 +338,45 @@ def detect_peak_indices(signal_values, valid_samples, config):
     return [int(peak_index) for peak_index in peak_indices if valid_samples[peak_index]]
 
 
+def calculate_heart_rate_metrics(x_values, peak_indices):
+    if len(peak_indices) < 2:
+        return {
+            "average_bpm": None,
+            "min_bpm": None,
+            "max_bpm": None,
+            "rr_intervals": [],
+            "peak_count": len(peak_indices),
+        }
+
+    peak_times = [x_values[index] for index in peak_indices]
+    rr_intervals = []
+
+    for index in range(1, len(peak_times)):
+        rr_interval = peak_times[index] - peak_times[index - 1]
+
+        if rr_interval > 0:
+            rr_intervals.append(rr_interval)
+
+    if len(rr_intervals) == 0:
+        return {
+            "average_bpm": None,
+            "min_bpm": None,
+            "max_bpm": None,
+            "rr_intervals": [],
+            "peak_count": len(peak_indices),
+        }
+
+    bpm_values = [60 / rr_interval for rr_interval in rr_intervals]
+
+    return {
+        "average_bpm": sum(bpm_values) / len(bpm_values),
+        "min_bpm": min(bpm_values),
+        "max_bpm": max(bpm_values),
+        "rr_intervals": rr_intervals,
+        "peak_count": len(peak_indices),
+    }
+
+
 # Applies all configured processing steps to the Green signal.
 def process_green_signal(x_values, signals, config):
     processed_x_values = list(x_values)
@@ -402,6 +441,11 @@ def process_green_signal(x_values, signals, config):
     if getattr(config, "INVERT_PROCESSED_SIGNAL", False):
         processed_green = invert_signal(processed_green)
 
-    peak_indices = detect_peak_indices(processed_green, valid_samples, config)
+    if getattr(config, "PEAK_DETECTION_ENABLED", False):
+        peak_indices = detect_peak_indices(processed_green, valid_samples, config)
+        heart_rate_metrics = calculate_heart_rate_metrics(processed_x_values, peak_indices)
+    else:
+        peak_indices = []
+        heart_rate_metrics = None
 
-    return processed_x_values, processed_green, valid_samples, peak_indices
+    return processed_x_values, processed_green, valid_samples, peak_indices, heart_rate_metrics

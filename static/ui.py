@@ -14,6 +14,7 @@ CONFIG_COMBO_TAG = "static_config_combo"
 CONFIG_STATUS_TAG = "static_config_status"
 CONFIG_DETAILS_BUTTON_TAG = "static_config_details_button"
 CONFIG_DETAILS_TEXT_TAG = "static_config_details_text"
+HEART_RATE_STATUS_TAG = "static_heart_rate_status"
 
 ORIGINAL_GREEN_SERIES_TAG = "static_original_green_series"
 ORIGINAL_GREEN_X_AXIS_TAG = "static_original_green_x_axis"
@@ -36,6 +37,7 @@ state = {
     "config_name": None,
     "start_index": 0,
     "end_index": None,
+    "heart_rate_metrics": None,
 }
 
 
@@ -106,6 +108,46 @@ def update_config_status():
     dpg.configure_item(CONFIG_DETAILS_BUTTON_TAG, show=True)
 
 
+def update_heart_rate_status():
+    if not dpg.does_item_exist(HEART_RATE_STATUS_TAG):
+        return
+
+    metrics = state["heart_rate_metrics"]
+
+    if not metrics:
+        dpg.set_value(HEART_RATE_STATUS_TAG, "Prosjecan BPM: -")
+        return
+
+    peak_count = metrics.get("peak_count", len(state["peak_indices"]))
+    rr_interval_count = metrics.get("rr_interval_count", len(metrics.get("rr_intervals", [])))
+    average_bpm = metrics.get("average_bpm")
+
+    if average_bpm is None:
+        dpg.set_value(
+            HEART_RATE_STATUS_TAG,
+            f"Prosjecan BPM: - | Vrhovi: {peak_count} | RR intervali: {rr_interval_count}",
+        )
+
+        return
+
+    min_bpm = metrics.get("min_bpm")
+    max_bpm = metrics.get("max_bpm")
+    bpm_range_text = ""
+
+    if min_bpm is not None and max_bpm is not None:
+        bpm_range_text = f" | Opseg: {min_bpm:.1f}-{max_bpm:.1f} BPM"
+
+    dpg.set_value(
+        HEART_RATE_STATUS_TAG,
+        (
+            f"Prosjecan BPM: {average_bpm:.1f} | "
+            f"Vrhovi: {peak_count} | "
+            f"RR intervali: {rr_interval_count}"
+            f"{bpm_range_text}"
+        ),
+    )
+
+
 def process_current_data():
     config = state["config"]
     signals = state["signals"]
@@ -120,6 +162,8 @@ def process_current_data():
         state["processed_green"] = []
         state["valid_samples"] = []
         state["peak_indices"] = []
+        state["heart_rate_metrics"] = None
+        update_heart_rate_status()
         return
 
     processing_result = process_green_signal(state["x_values"], signals, config)
@@ -127,6 +171,8 @@ def process_current_data():
     state["processed_green"] = processing_result[1]
     state["valid_samples"] = processing_result[2]
     state["peak_indices"] = processing_result[3] if len(processing_result) > 3 else []
+    state["heart_rate_metrics"] = processing_result[4] if len(processing_result) > 4 else None
+    update_heart_rate_status()
 
 
 def apply_runtime_config(
@@ -183,6 +229,7 @@ def apply_runtime_config(
 
     process_current_data()
     update_plots()
+    update_heart_rate_status()
     update_config_status()
 
 
@@ -407,6 +454,8 @@ def select_static_config(sender=None, app_data=None, user_data=None):
         state["processed_green"] = []
         state["valid_samples"] = []
         state["peak_indices"] = []
+        state["heart_rate_metrics"] = None
+        update_heart_rate_status()
         dpg.set_value(CONFIG_STATUS_TAG, f"Greska pri ucitavanju konfiguracije: {error}")
         dpg.set_value(CONFIG_DETAILS_TEXT_TAG, "")
         dpg.configure_item(CONFIG_DETAILS_BUTTON_TAG, show=False)
@@ -530,6 +579,8 @@ def create():
             artifact_series_tag=PROCESSED_ARTIFACT_SERIES_TAG,
             peak_series_tag=PROCESSED_PEAK_SERIES_TAG,
         )
+
+        dpg.add_text("Prosjecan BPM: -", tag=HEART_RATE_STATUS_TAG)
 
     dpg.bind_item_theme(ORIGINAL_GREEN_SERIES_TAG, original_green_theme)
     dpg.bind_item_theme(PROCESSED_GREEN_SERIES_TAG, processed_green_theme)
