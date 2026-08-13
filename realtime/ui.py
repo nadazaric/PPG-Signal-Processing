@@ -96,8 +96,9 @@ def update_config_status():
     details = (
         f"Uklanjanje pocetka: "
         f"{config_value(config, 'STARTUP_TRIM_SECONDS', 0.0)} s\n"
-        f"Invertovan signal: "
-        f"{config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}"
+        f"Uklanjanje DC komponente: {config_value(config, 'DC_REMOVAL_ENABLED', False)}\n"
+        f"Tip DC prozora: {config_value(config, 'DC_REMOVAL_WINDOW_TYPE', 'causal')}\n"
+        f"Trajanje DC prozora: {config_value(config, 'DC_REMOVAL_WINDOW_SECONDS', 2.0)} s\n"
     )
 
     dpg.set_value(CONFIG_STATUS_TAG, "")
@@ -246,13 +247,22 @@ def update_plots():
     update_status()
 
 
-def apply_runtime_config(startup_trim_seconds, invert_processed_signal):
+def apply_runtime_config(
+        startup_trim_seconds,
+        dc_removal_enabled,
+        dc_removal_window_type,
+        dc_removal_window_seconds,
+        invert_processed_signal,
+):
     config = state["config"]
 
     if config is None:
         raise ValueError("Nijedna konfiguracija nije izabrana.")
 
     config.STARTUP_TRIM_SECONDS = startup_trim_seconds
+    config.DC_REMOVAL_ENABLED = dc_removal_enabled
+    config.DC_REMOVAL_WINDOW_TYPE = dc_removal_window_type
+    config.DC_REMOVAL_WINDOW_SECONDS = dc_removal_window_seconds
     config.INVERT_PROCESSED_SIGNAL = invert_processed_signal
 
     update_plots()
