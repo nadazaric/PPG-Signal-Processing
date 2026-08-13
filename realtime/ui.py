@@ -95,7 +95,9 @@ def update_config_status():
 
     details = (
         f"Uklanjanje pocetka: "
-        f"{config_value(config, 'STARTUP_TRIM_SECONDS', 0.0)} s"
+        f"{config_value(config, 'STARTUP_TRIM_SECONDS', 0.0)} s\n"
+        f"Invertovan signal: "
+        f"{config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}"
     )
 
     dpg.set_value(CONFIG_STATUS_TAG, "")
@@ -244,13 +246,14 @@ def update_plots():
     update_status()
 
 
-def apply_runtime_config(startup_trim_seconds):
+def apply_runtime_config(startup_trim_seconds, invert_processed_signal):
     config = state["config"]
 
     if config is None:
         raise ValueError("Nijedna konfiguracija nije izabrana.")
 
     config.STARTUP_TRIM_SECONDS = startup_trim_seconds
+    config.INVERT_PROCESSED_SIGNAL = invert_processed_signal
 
     update_plots()
     update_config_status()

@@ -5,6 +5,7 @@ CONFIG_WINDOW_TAG = "realtime_config_window"
 CONFIG_NAME_TAG = "realtime_config_name"
 STARTUP_TRIM_INPUT_TAG = "realtime_config_startup_trim"
 CONFIG_FORM_STATUS_TAG = "realtime_config_form_status"
+INVERT_PROCESSED_SIGNAL_INPUT_TAG = "realtime_config_invert_processed_signal"
 
 CONFIG_WINDOW_WIDTH = 420
 CONFIG_WINDOW_HEIGHT = 210
@@ -34,8 +35,11 @@ def apply_config(sender=None, app_data=None, user_data=None):
     try:
         startup_trim_seconds = read_float(STARTUP_TRIM_INPUT_TAG)
         validate_config_values(startup_trim_seconds)
-        on_apply(startup_trim_seconds)
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
+
+        invert_processed_signal = bool(dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG))
+
+        on_apply(startup_trim_seconds, invert_processed_signal)
 
     except Exception as error:
         dpg.set_value(CONFIG_FORM_STATUS_TAG, str(error))
@@ -65,6 +69,12 @@ def add_float_row(label, tag, minimum, number_format):
         )
 
 
+def add_checkbox_row(label, tag):
+    with dpg.table_row():
+        dpg.add_text(label)
+        dpg.add_checkbox(tag=tag)
+
+
 def add_config_table():
     with dpg.table(
         header_row=False,
@@ -83,6 +93,7 @@ def add_config_table():
             0.0,
             "%.2f",
         )
+        add_checkbox_row("Invertuj signal", INVERT_PROCESSED_SIGNAL_INPUT_TAG)
 
 
 def create(on_apply):
@@ -119,6 +130,10 @@ def open_config_form(config_name, config):
     dpg.set_value(CONFIG_NAME_TAG, f"Konfiguracija: {config_name}")
     dpg.set_value(STARTUP_TRIM_INPUT_TAG, float(config.STARTUP_TRIM_SECONDS))
     dpg.set_value(CONFIG_FORM_STATUS_TAG, "")
+    dpg.set_value(
+        INVERT_PROCESSED_SIGNAL_INPUT_TAG,
+        bool(getattr(config, "INVERT_PROCESSED_SIGNAL", False)),
+    )
     dpg.configure_item(CONFIG_WINDOW_TAG, show=True)
     center_config_window()
     dpg.focus_item(CONFIG_WINDOW_TAG)
