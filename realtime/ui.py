@@ -14,6 +14,9 @@ CONFIG_COMBO_TAG = "realtime_config_combo"
 CONFIG_STATUS_TAG = "realtime_config_status"
 CONFIG_DETAILS_BUTTON_TAG = "realtime_config_details_button"
 CONFIG_DETAILS_TEXT_TAG = "realtime_config_details_text"
+SAVE_CONFIG_WINDOW_TAG = "realtime_save_config_window"
+SAVE_CONFIG_NAME_INPUT_TAG = "realtime_save_config_name_input"
+SAVE_CONFIG_STATUS_TAG = "realtime_save_config_status"
 
 REALTIME_ORIGINAL_GREEN_SERIES_TAG = "realtime_original_green_series"
 REALTIME_ORIGINAL_GREEN_X_AXIS_TAG = "realtime_original_green_x_axis"
@@ -29,6 +32,8 @@ REALTIME_FRAME_INTERVAL = 3
 REALTIME_SAMPLES_PER_TICK = 5
 REALTIME_WINDOW_SIZE = 500
 REALTIME_PLOT_HEIGHT = 250
+SAVE_CONFIG_WINDOW_WIDTH = 420
+SAVE_CONFIG_WINDOW_HEIGHT = 145
 
 state = {
     "x_values": [],
@@ -79,8 +84,119 @@ def load_realtime_config(config_name):
     return config_module
 
 
+def normalize_config_name(config_name):
+    normalized_name = str(config_name).strip()
+
+    if normalized_name.endswith(".py"):
+        normalized_name = normalized_name[:-3]
+
+    normalized_name = normalized_name.replace(" ", "_").replace("-", "_")
+
+    if not normalized_name:
+        raise ValueError("Unesi ime konfiguracije.")
+
+    if not all(character.isalnum() or character == "_" for character in normalized_name):
+        raise ValueError("Ime konfiguracije smije sadrzati samo slova, brojeve i donju crtu.")
+
+    return normalized_name
+
+
+def save_realtime_config(config_name, config):
+    normalized_name = normalize_config_name(config_name)
+    REALTIME_CONFIGS_DIR.mkdir(parents=True, exist_ok=True)
+    config_path = REALTIME_CONFIGS_DIR / f"{normalized_name}.py"
+
+    if config_path.exists():
+        raise ValueError("Konfiguracija sa tim imenom vec postoji.")
+
+    config_content = "\n".join(
+        [
+            f"STARTUP_TRIM_SECONDS = {float(config.STARTUP_TRIM_SECONDS)}",
+            f"INVERT_PROCESSED_SIGNAL = {bool(config.INVERT_PROCESSED_SIGNAL)}",
+            "",
+            f"DC_REMOVAL_ENABLED = {bool(config.DC_REMOVAL_ENABLED)}",
+            '# "causal" or "centered"',
+            f"DC_REMOVAL_WINDOW_TYPE = {repr(config.DC_REMOVAL_WINDOW_TYPE)}",
+            f"DC_REMOVAL_WINDOW_SECONDS = {float(config.DC_REMOVAL_WINDOW_SECONDS)}",
+            "",
+            f"HIGH_PASS_FILTER_ENABLED = {bool(config.HIGH_PASS_FILTER_ENABLED)}",
+            f"HIGH_PASS_CUTOFF_HZ = {float(config.HIGH_PASS_CUTOFF_HZ)}",
+            f"HIGH_PASS_FILTER_PASSES = {int(config.HIGH_PASS_FILTER_PASSES)}",
+            "",
+            f"LOW_PASS_FILTER_ENABLED = {bool(config.LOW_PASS_FILTER_ENABLED)}",
+            f"LOW_PASS_CUTOFF_HZ = {float(config.LOW_PASS_CUTOFF_HZ)}",
+            f"LOW_PASS_FILTER_PASSES = {int(config.LOW_PASS_FILTER_PASSES)}",
+        ]
+    )
+    config_path.write_text(config_content + "\n", encoding="utf-8")
+
+    return normalized_name
+
+
 def config_value(config, name, default="-"):
     return getattr(config, name, default)
+
+
+def next_config_name(base_name):
+    normalized_base = normalize_config_name(base_name or "rt_config")
+    candidate = f"{normalized_base}_copy"
+    index = 2
+
+    while (REALTIME_CONFIGS_DIR / f"{candidate}.py").exists():
+        candidate = f"{normalized_base}_copy_{index}"
+        index += 1
+
+    return candidate
+
+
+def center_save_config_window():
+    viewport_width = dpg.get_viewport_client_width()
+    viewport_height = dpg.get_viewport_client_height()
+    window_x = max(0, (viewport_width - SAVE_CONFIG_WINDOW_WIDTH) // 2)
+    window_y = max(0, (viewport_height - SAVE_CONFIG_WINDOW_HEIGHT) // 2)
+    dpg.set_item_pos(SAVE_CONFIG_WINDOW_TAG, [window_x, window_y])
+
+
+def open_save_config_form(sender=None, app_data=None, user_data=None):
+    if state["config"] is None:
+        dpg.set_value(CONFIG_STATUS_TAG, "Prvo izaberi konfiguraciju.")
+        return
+
+    dpg.set_value(
+        SAVE_CONFIG_NAME_INPUT_TAG,
+        next_config_name(state["config_name"]),
+    )
+    dpg.set_value(SAVE_CONFIG_STATUS_TAG, "")
+    dpg.configure_item(SAVE_CONFIG_WINDOW_TAG, show=True)
+    center_save_config_window()
+    dpg.focus_item(SAVE_CONFIG_NAME_INPUT_TAG)
+
+
+def close_save_config_form(sender=None, app_data=None, user_data=None):
+    dpg.configure_item(SAVE_CONFIG_WINDOW_TAG, show=False)
+
+
+def save_current_config_as_new(sender=None, app_data=None, user_data=None):
+    config = state["config"]
+
+    if config is None:
+        dpg.set_value(SAVE_CONFIG_STATUS_TAG, "Nijedna konfiguracija nije izabrana.")
+        return
+
+    try:
+        saved_config_name = save_realtime_config(
+            dpg.get_value(SAVE_CONFIG_NAME_INPUT_TAG),
+            config,
+        )
+        config_names = find_realtime_configs()
+        dpg.configure_item(CONFIG_COMBO_TAG, items=config_names)
+        dpg.set_value(CONFIG_COMBO_TAG, saved_config_name)
+        dpg.configure_item(SAVE_CONFIG_WINDOW_TAG, show=False)
+        select_realtime_config()
+        dpg.set_value(CONFIG_STATUS_TAG, f"Sacuvana nova konfiguracija: {saved_config_name}")
+
+    except Exception as error:
+        dpg.set_value(SAVE_CONFIG_STATUS_TAG, str(error))
 
 
 def update_config_status():
@@ -96,9 +212,27 @@ def update_config_status():
     details = (
         f"Uklanjanje pocetka: "
         f"{config_value(config, 'STARTUP_TRIM_SECONDS', 0.0)} s\n"
-        f"Uklanjanje DC komponente: {config_value(config, 'DC_REMOVAL_ENABLED', False)}\n"
-        f"Tip DC prozora: {config_value(config, 'DC_REMOVAL_WINDOW_TYPE', 'causal')}\n"
-        f"Trajanje DC prozora: {config_value(config, 'DC_REMOVAL_WINDOW_SECONDS', 2.0)} s\n"
+        f"Invertovanje signala: "
+        f"{config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}\n"
+        f"\n"
+        f"Uklanjanje DC komponente:\n"
+        f"  Omoguceno: {config_value(config, 'DC_REMOVAL_ENABLED', False)}\n"
+        f"  Tip prozora: {config_value(config, 'DC_REMOVAL_WINDOW_TYPE', 'causal')}\n"
+        f"  Trajanje prozora: {config_value(config, 'DC_REMOVAL_WINDOW_SECONDS', 2.0)} s\n"
+        f"\n"
+        f"Filtriranje signala:\n"
+        f"  Visokopropusni filter: "
+        f"{config_value(config, 'HIGH_PASS_FILTER_ENABLED', False)}\n"
+        f"  High-pass granica: "
+        f"{config_value(config, 'HIGH_PASS_CUTOFF_HZ', 0.5)} Hz\n"
+        f"  High-pass broj prolaza: "
+        f"{config_value(config, 'HIGH_PASS_FILTER_PASSES', 1)}\n"
+        f"  Niskopropusni filter: "
+        f"{config_value(config, 'LOW_PASS_FILTER_ENABLED', False)}\n"
+        f"  Low-pass granica: "
+        f"{config_value(config, 'LOW_PASS_CUTOFF_HZ', 5.0)} Hz\n"
+        f"  Low-pass broj prolaza: "
+        f"{config_value(config, 'LOW_PASS_FILTER_PASSES', 1)}\n"
     )
 
     dpg.set_value(CONFIG_STATUS_TAG, "")
@@ -253,10 +387,17 @@ def apply_runtime_config(
         dc_removal_window_type,
         dc_removal_window_seconds,
         invert_processed_signal,
+        high_pass_filter_enabled,
+        high_pass_cutoff_hz,
+        low_pass_filter_enabled,
+        low_pass_cutoff_hz,
+        high_pass_filter_passes,
+        low_pass_filter_passes,
 ):
     config = state["config"]
+    config_name = state["config_name"]
 
-    if config is None:
+    if config is None or config_name is None:
         raise ValueError("Nijedna konfiguracija nije izabrana.")
 
     config.STARTUP_TRIM_SECONDS = startup_trim_seconds
@@ -264,6 +405,12 @@ def apply_runtime_config(
     config.DC_REMOVAL_WINDOW_TYPE = dc_removal_window_type
     config.DC_REMOVAL_WINDOW_SECONDS = dc_removal_window_seconds
     config.INVERT_PROCESSED_SIGNAL = invert_processed_signal
+    config.HIGH_PASS_FILTER_ENABLED = high_pass_filter_enabled
+    config.HIGH_PASS_CUTOFF_HZ = high_pass_cutoff_hz
+    config.LOW_PASS_FILTER_ENABLED = low_pass_filter_enabled
+    config.LOW_PASS_CUTOFF_HZ = low_pass_cutoff_hz
+    config.HIGH_PASS_FILTER_PASSES = high_pass_filter_passes
+    config.LOW_PASS_FILTER_PASSES = low_pass_filter_passes
 
     update_plots()
     update_config_status()
@@ -408,6 +555,28 @@ def create_signal_plot(label, series_label, series_tag, x_axis_tag, y_axis_tag):
         dpg.add_line_series([], [], label=series_label, parent=y_axis_tag, tag=series_tag)
 
 
+def create_save_config_window():
+    with dpg.window(
+        label="Sacuvaj novu realtime konfiguraciju",
+        tag=SAVE_CONFIG_WINDOW_TAG,
+        width=SAVE_CONFIG_WINDOW_WIDTH,
+        height=SAVE_CONFIG_WINDOW_HEIGHT,
+        modal=True,
+        show=False,
+        no_resize=True,
+        no_collapse=True,
+    ):
+        dpg.add_text("Ime konfiguracije")
+        dpg.add_input_text(tag=SAVE_CONFIG_NAME_INPUT_TAG, width=-1)
+        dpg.add_spacer(height=6)
+        dpg.add_text("", tag=SAVE_CONFIG_STATUS_TAG, color=(239, 68, 68, 255), wrap=380)
+        dpg.add_spacer(height=6)
+
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Sacuvaj", width=100, callback=save_current_config_as_new)
+            dpg.add_button(label="Odustani", width=100, callback=close_save_config_form)
+
+
 def create():
     original_green_theme = create_line_theme((34, 197, 94, 255), 2.0)
     processed_green_theme = create_line_theme((255, 215, 0, 255), 2.0)
@@ -423,6 +592,7 @@ def create():
             )
             dpg.add_button(label="Osvjezi", callback=refresh_realtime_config_list)
             dpg.add_button(label="Izmijeni", callback=open_config_form)
+            dpg.add_button(label="Sacuvaj novu konfiguraciju", callback=open_save_config_form)
             dpg.add_button(label="Detalji", tag=CONFIG_DETAILS_BUTTON_TAG, show=False)
 
             with dpg.tooltip(parent=CONFIG_DETAILS_BUTTON_TAG):
@@ -465,6 +635,8 @@ def create():
                     REALTIME_PROCESSED_GREEN_X_AXIS_TAG,
                     REALTIME_PROCESSED_GREEN_Y_AXIS_TAG,
                 )
+
+    create_save_config_window()
 
     dpg.bind_item_theme(REALTIME_ORIGINAL_GREEN_SERIES_TAG, original_green_theme)
     dpg.bind_item_theme(REALTIME_PROCESSED_GREEN_SERIES_TAG, processed_green_theme)

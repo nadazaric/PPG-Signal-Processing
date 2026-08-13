@@ -9,11 +9,17 @@ INVERT_PROCESSED_SIGNAL_INPUT_TAG = "realtime_config_invert_processed_signal"
 DC_REMOVAL_ENABLED_INPUT_TAG = "realtime_config_dc_removal_enabled"
 DC_REMOVAL_WINDOW_TYPE_INPUT_TAG = "realtime_config_dc_removal_window_type"
 DC_REMOVAL_WINDOW_SECONDS_INPUT_TAG = "realtime_config_dc_removal_window_seconds"
+HIGH_PASS_FILTER_ENABLED_INPUT_TAG = "realtime_config_high_pass_filter_enabled"
+HIGH_PASS_CUTOFF_HZ_INPUT_TAG = "realtime_config_high_pass_cutoff_hz"
+LOW_PASS_FILTER_ENABLED_INPUT_TAG = "realtime_config_low_pass_filter_enabled"
+LOW_PASS_CUTOFF_HZ_INPUT_TAG = "realtime_config_low_pass_cutoff_hz"
+HIGH_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_high_pass_filter_passes"
+LOW_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_low_pass_filter_passes"
 
 DC_REMOVAL_WINDOW_TYPE_OPTIONS = ("causal", "centered")
 
 CONFIG_WINDOW_WIDTH = 440
-CONFIG_WINDOW_HEIGHT = 270
+CONFIG_WINDOW_HEIGHT = 410
 CONFIG_INPUT_WIDTH = 180
 
 state = {
@@ -24,6 +30,10 @@ state = {
 
 def read_float(tag):
     return float(dpg.get_value(tag))
+
+
+def read_int(tag):
+    return int(dpg.get_value(tag))
 
 
 def normalize_dc_removal_window_type(window_type):
@@ -46,16 +56,48 @@ def update_dc_removal_inputs(sender=None, app_data=None, user_data=None):
     )
 
 
+def update_filter_inputs(sender=None, app_data=None, user_data=None):
+    high_pass_enabled = bool(dpg.get_value(HIGH_PASS_FILTER_ENABLED_INPUT_TAG))
+    low_pass_enabled = bool(dpg.get_value(LOW_PASS_FILTER_ENABLED_INPUT_TAG))
+
+    dpg.configure_item(HIGH_PASS_CUTOFF_HZ_INPUT_TAG, enabled=high_pass_enabled)
+    dpg.configure_item(LOW_PASS_CUTOFF_HZ_INPUT_TAG, enabled=low_pass_enabled)
+
+    dpg.configure_item(HIGH_PASS_FILTER_PASSES_INPUT_TAG, enabled=high_pass_enabled)
+    dpg.configure_item(LOW_PASS_FILTER_PASSES_INPUT_TAG, enabled=low_pass_enabled)
+
+
 def validate_config_values(
         startup_trim_seconds,
         dc_removal_enabled,
         dc_removal_window_seconds,
+        high_pass_enabled,
+        high_pass_cutoff_hz,
+        low_pass_enabled,
+        low_pass_cutoff_hz,
+        high_pass_filter_passes,
+        low_pass_filter_passes
 ):
     if startup_trim_seconds < 0:
         raise ValueError("Vrijeme uklanjanja pocetka ne moze biti negativno.")
 
     if dc_removal_enabled and dc_removal_window_seconds <= 0:
         raise ValueError("Prozor za DC mora biti veci od 0.")
+
+    if high_pass_enabled and high_pass_cutoff_hz <= 0:
+        raise ValueError("High-pass granicna frekvencija mora biti veca od 0.")
+
+    if low_pass_enabled and low_pass_cutoff_hz <= 0:
+        raise ValueError("Low-pass granicna frekvencija mora biti veca od 0.")
+
+    if high_pass_enabled and low_pass_enabled and high_pass_cutoff_hz >= low_pass_cutoff_hz:
+        raise ValueError("High-pass granica mora biti manja od low-pass granice.")
+
+    if high_pass_enabled and high_pass_filter_passes < 1:
+        raise ValueError("High-pass broj prolaza mora biti najmanje 1.")
+
+    if low_pass_enabled and low_pass_filter_passes < 1:
+        raise ValueError("Low-pass broj prolaza mora biti najmanje 1.")
 
 
 def apply_config(sender=None, app_data=None, user_data=None):
@@ -67,16 +109,32 @@ def apply_config(sender=None, app_data=None, user_data=None):
     try:
         startup_trim_seconds = read_float(STARTUP_TRIM_INPUT_TAG)
         invert_processed_signal = bool(dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG))
+
         dc_removal_enabled = bool(dpg.get_value(DC_REMOVAL_ENABLED_INPUT_TAG))
         dc_removal_window_type = normalize_dc_removal_window_type(
             dpg.get_value(DC_REMOVAL_WINDOW_TYPE_INPUT_TAG)
         )
         dc_removal_window_seconds = read_float(DC_REMOVAL_WINDOW_SECONDS_INPUT_TAG)
 
+        high_pass_enabled = bool(dpg.get_value(HIGH_PASS_FILTER_ENABLED_INPUT_TAG))
+        high_pass_cutoff_hz = read_float(HIGH_PASS_CUTOFF_HZ_INPUT_TAG)
+
+        low_pass_enabled = bool(dpg.get_value(LOW_PASS_FILTER_ENABLED_INPUT_TAG))
+        low_pass_cutoff_hz = read_float(LOW_PASS_CUTOFF_HZ_INPUT_TAG)
+
+        high_pass_filter_passes = read_int(HIGH_PASS_FILTER_PASSES_INPUT_TAG)
+        low_pass_filter_passes = read_int(LOW_PASS_FILTER_PASSES_INPUT_TAG)
+
         validate_config_values(
             startup_trim_seconds,
             dc_removal_enabled,
             dc_removal_window_seconds,
+            high_pass_enabled,
+            high_pass_cutoff_hz,
+            low_pass_enabled,
+            low_pass_cutoff_hz,
+            high_pass_filter_passes,
+            low_pass_filter_passes
         )
 
         on_apply(
@@ -85,6 +143,12 @@ def apply_config(sender=None, app_data=None, user_data=None):
             dc_removal_window_type,
             dc_removal_window_seconds,
             invert_processed_signal,
+            high_pass_enabled,
+            high_pass_cutoff_hz,
+            low_pass_enabled,
+            low_pass_cutoff_hz,
+            high_pass_filter_passes,
+            low_pass_filter_passes
         )
 
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
@@ -113,6 +177,17 @@ def add_float_row(label, tag, minimum, number_format):
             min_value=minimum,
             min_clamped=True,
             format=number_format,
+            width=-1,
+        )
+
+
+def add_int_row(label, tag, minimum):
+    with dpg.table_row():
+        dpg.add_text(label)
+        dpg.add_input_int(
+            tag=tag,
+            min_value=minimum,
+            min_clamped=True,
             width=-1,
         )
 
@@ -191,6 +266,57 @@ def add_dc_removal_table():
         )
 
 
+def add_filter_table():
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        policy=dpg.mvTable_SizingStretchProp,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=CONFIG_INPUT_WIDTH)
+
+        add_checkbox_row(
+            "Visokopropusni filter",
+            HIGH_PASS_FILTER_ENABLED_INPUT_TAG,
+            update_filter_inputs,
+        )
+
+        add_float_row(
+            "High-pass granica [Hz]",
+            HIGH_PASS_CUTOFF_HZ_INPUT_TAG,
+            0.01,
+            "%.2f",
+        )
+
+        add_int_row(
+            "High-pass broj prolaza",
+            HIGH_PASS_FILTER_PASSES_INPUT_TAG,
+            1,
+        )
+
+        add_checkbox_row(
+            "Niskopropusni filter",
+            LOW_PASS_FILTER_ENABLED_INPUT_TAG,
+            update_filter_inputs,
+        )
+
+        add_float_row(
+            "Low-pass granica [Hz]",
+            LOW_PASS_CUTOFF_HZ_INPUT_TAG,
+            0.01,
+            "%.2f",
+        )
+
+        add_int_row(
+            "Low-pass broj prolaza",
+            LOW_PASS_FILTER_PASSES_INPUT_TAG,
+            1,
+        )
+
+
 def create(on_apply):
     state["on_apply"] = on_apply
 
@@ -214,6 +340,11 @@ def create(on_apply):
 
         with dpg.collapsing_header(label="Uklanjanje DC komponente", default_open=True):
             add_dc_removal_table()
+
+        dpg.add_spacer(height=6)
+
+        with dpg.collapsing_header(label="Filtriranje signala", default_open=True):
+            add_filter_table()
 
         dpg.add_spacer(height=8)
         dpg.add_text("", tag=CONFIG_FORM_STATUS_TAG, color=(239, 68, 68, 255), wrap=400)
@@ -257,6 +388,33 @@ def open_config_form(config_name, config):
     dpg.set_value(CONFIG_FORM_STATUS_TAG, "")
 
     update_dc_removal_inputs()
+
+    dpg.set_value(
+        HIGH_PASS_FILTER_ENABLED_INPUT_TAG,
+        bool(getattr(config, "HIGH_PASS_FILTER_ENABLED", False)),
+    )
+    dpg.set_value(
+        HIGH_PASS_CUTOFF_HZ_INPUT_TAG,
+        float(getattr(config, "HIGH_PASS_CUTOFF_HZ", 0.5)),
+    )
+    dpg.set_value(
+        LOW_PASS_FILTER_ENABLED_INPUT_TAG,
+        bool(getattr(config, "LOW_PASS_FILTER_ENABLED", False)),
+    )
+    dpg.set_value(
+        LOW_PASS_CUTOFF_HZ_INPUT_TAG,
+        float(getattr(config, "LOW_PASS_CUTOFF_HZ", 5.0)),
+    )
+    dpg.set_value(
+        HIGH_PASS_FILTER_PASSES_INPUT_TAG,
+        int(getattr(config, "HIGH_PASS_FILTER_PASSES", 1)),
+    )
+    dpg.set_value(
+        LOW_PASS_FILTER_PASSES_INPUT_TAG,
+        int(getattr(config, "LOW_PASS_FILTER_PASSES", 1)),
+    )
+
+    update_filter_inputs()
 
     dpg.configure_item(CONFIG_WINDOW_TAG, show=True)
     center_config_window()
