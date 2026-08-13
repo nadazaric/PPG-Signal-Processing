@@ -19,6 +19,10 @@ LOW_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_low_pass_filter_passes"
 PEAK_DETECTION_ENABLED_INPUT_TAG = "realtime_config_peak_detection_enabled"
 PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG = "realtime_config_peak_min_distance_seconds"
 PEAK_MIN_HEIGHT_INPUT_TAG = "realtime_config_peak_min_height"
+HEART_RATE_ENABLED_INPUT_TAG = "realtime_config_heart_rate_enabled"
+HEART_RATE_AVERAGING_INTERVAL_COUNT_INPUT_TAG = "realtime_config_heart_rate_averaging_interval_count"
+HEART_RATE_MIN_BPM_INPUT_TAG = "realtime_config_heart_rate_min_bpm"
+HEART_RATE_MAX_BPM_INPUT_TAG = "realtime_config_heart_rate_max_bpm"
 
 CHANNEL_SUBTRACTION_OPTIONS = (
     "none",
@@ -94,6 +98,14 @@ def update_peak_detection_inputs(sender=None, app_data=None, user_data=None):
         PEAK_MIN_HEIGHT_INPUT_TAG,
         enabled=peak_detection_enabled,
     )
+
+
+def update_heart_rate_inputs(sender=None, app_data=None, user_data=None):
+    enabled = bool(dpg.get_value(HEART_RATE_ENABLED_INPUT_TAG))
+
+    dpg.configure_item(HEART_RATE_AVERAGING_INTERVAL_COUNT_INPUT_TAG, enabled=enabled)
+    dpg.configure_item(HEART_RATE_MIN_BPM_INPUT_TAG, enabled=enabled)
+    dpg.configure_item(HEART_RATE_MAX_BPM_INPUT_TAG, enabled=enabled)
 
 
 def validate_config_values(
@@ -416,6 +428,45 @@ def add_peak_detection_table():
         )
 
 
+def add_heart_rate_table():
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        policy=dpg.mvTable_SizingStretchProp,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=CONFIG_INPUT_WIDTH)
+
+        add_checkbox_row(
+            "Racunaj heartbeat",
+            HEART_RATE_ENABLED_INPUT_TAG,
+            update_heart_rate_inputs,
+        )
+
+        add_int_row(
+            "Broj intervala za prosjek",
+            HEART_RATE_AVERAGING_INTERVAL_COUNT_INPUT_TAG,
+            1,
+        )
+
+        add_float_row(
+            "Minimalni BPM",
+            HEART_RATE_MIN_BPM_INPUT_TAG,
+            1.0,
+            "%.1f",
+        )
+
+        add_float_row(
+            "Maksimalni BPM",
+            HEART_RATE_MAX_BPM_INPUT_TAG,
+            1.0,
+            "%.1f",
+        )
+
+
 def create(on_apply):
     state["on_apply"] = on_apply
 
@@ -454,6 +505,11 @@ def create(on_apply):
 
         with dpg.collapsing_header(label="Detekcija vrhova", default_open=True):
             add_peak_detection_table()
+
+        dpg.add_spacer(height=6)
+
+        with dpg.collapsing_header(label="Racunanje pulsa", default_open=False):
+            add_heart_rate_table()
 
         dpg.add_spacer(height=8)
         dpg.add_text("", tag=CONFIG_FORM_STATUS_TAG, color=(239, 68, 68, 255), wrap=400)
@@ -549,6 +605,25 @@ def open_config_form(config_name, config):
     )
 
     update_peak_detection_inputs()
+
+    dpg.set_value(
+        HEART_RATE_ENABLED_INPUT_TAG,
+        bool(getattr(config, "HEART_RATE_ENABLED", True)),
+    )
+    dpg.set_value(
+        HEART_RATE_AVERAGING_INTERVAL_COUNT_INPUT_TAG,
+        int(getattr(config, "HEART_RATE_AVERAGING_INTERVAL_COUNT", 5)),
+    )
+    dpg.set_value(
+        HEART_RATE_MIN_BPM_INPUT_TAG,
+        float(getattr(config, "HEART_RATE_MIN_BPM", 40.0)),
+    )
+    dpg.set_value(
+        HEART_RATE_MAX_BPM_INPUT_TAG,
+        float(getattr(config, "HEART_RATE_MAX_BPM", 180.0)),
+    )
+
+    update_heart_rate_inputs()
 
     dpg.configure_item(CONFIG_WINDOW_TAG, show=True)
     center_config_window()

@@ -4,7 +4,7 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 
 from realtime import config_ui
-from realtime.processing import process_green_signal, detect_peaks
+from realtime.processing import process_green_signal, detect_peaks, calculate_heart_rate_from_peaks
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,12 +33,15 @@ REALTIME_FINAL_PROCESSED_CONTAINER_TAG = "realtime_final_processed_container"
 REALTIME_PROCESSED_PEAKS_SERIES_TAG = "realtime_processed_peaks_series"
 REALTIME_FINAL_PROCESSED_PEAKS_SERIES_TAG = "realtime_final_processed_peaks_series"
 
+REALTIME_HEARTBEAT_AVERAGE_TAG = "realtime_heartbeat_average"
+REALTIME_HEARTBEAT_COUNT_TAG = "realtime_heartbeat_count"
+
 REALTIME_STATUS_TAG = "realtime_status"
 
 REALTIME_FRAME_INTERVAL = 3
 REALTIME_SAMPLES_PER_TICK = 5
 # REALTIME_WINDOW_SIZE = 500
-REALTIME_WINDOW_SIZE = 200
+REALTIME_WINDOW_SIZE = 300
 # REALTIME_PLOT_HEIGHT = 250
 REALTIME_PLOT_HEIGHT = 350
 SAVE_CONFIG_WINDOW_WIDTH = 420
@@ -62,6 +65,9 @@ state = {
     "show_final_processed_plot": False,
     "peak_x_values": [],
     "peak_green_values": [],
+    "current_bpm": None,
+    "average_bpm": None,
+    "heartbeat_count": 0,
 }
 
 
@@ -302,6 +308,7 @@ def update_processed_data():
         state["processed_green"] = []
         state["peak_x_values"] = []
         state["peak_green_values"] = []
+        reset_heartbeat_values()
         return
 
     processed_x_values, processed_green = process_green_signal(
@@ -319,6 +326,15 @@ def update_processed_data():
     )
     state["peak_x_values"] = peak_x_values
     state["peak_green_values"] = peak_green_values
+
+    current_bpm, average_bpm, heartbeat_count = calculate_heart_rate_from_peaks(
+        peak_x_values,
+        config,
+    )
+
+    state["current_bpm"] = current_bpm
+    state["average_bpm"] = average_bpm
+    state["heartbeat_count"] = heartbeat_count
 
 
 def update_status():
@@ -435,6 +451,7 @@ def update_plots():
     update_processed_plot()
     update_status()
     update_final_processed_plot()
+    update_heartbeat_panel()
 
 
 def apply_runtime_config(
@@ -612,6 +629,7 @@ def reset_realtime(sender=None, app_data=None, user_data=None):
     state["visible_processed_green_values"] = []
     state["peak_x_values"] = []
     state["peak_green_values"] = []
+    reset_heartbeat_values()
     update_plots()
 
 def create_signal_plot(
@@ -685,13 +703,34 @@ def create():
         dpg.add_text("", tag=CONFIG_STATUS_TAG)
         dpg.add_spacer(height=6)
 
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Start", callback=start_realtime)
-            dpg.add_button(label="Pauza", callback=pause_realtime)
-            dpg.add_button(label="Reset", callback=reset_realtime)
+        with dpg.table(
+                header_row=False,
+                borders_innerH=False,
+                borders_innerV=False,
+                borders_outerH=False,
+                borders_outerV=False,
+                policy=dpg.mvTable_SizingStretchProp,
+        ):
+            dpg.add_table_column(width_stretch=True)
+            dpg.add_table_column(width_fixed=True, init_width_or_weight=260)
 
-        dpg.add_spacer(height=6)
-        dpg.add_text("Nema ucitanih podataka.", tag=REALTIME_STATUS_TAG)
+            with dpg.table_row():
+                with dpg.group():
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(label="Start", callback=start_realtime)
+                        dpg.add_button(label="Pauza", callback=pause_realtime)
+                        dpg.add_button(label="Reset", callback=reset_realtime)
+
+                    dpg.add_spacer(height=6)
+                    dpg.add_text("Nema ucitanih podataka.", tag=REALTIME_STATUS_TAG)
+
+                with dpg.child_window(width=-1, height=76, border=True):
+                    dpg.add_text("Statistika pulsa", color=(255, 215, 0, 255))
+                    dpg.add_text("Prosjek: -- BPM", tag=REALTIME_HEARTBEAT_AVERAGE_TAG)
+                    dpg.add_text("Otkucaji: 0", tag=REALTIME_HEARTBEAT_COUNT_TAG)
+
+        dpg.add_spacer(height=8)
+
         dpg.add_spacer(height=8)
 
         with dpg.table(
@@ -849,4 +888,28 @@ def update_final_processed_plot():
         REALTIME_FINAL_PROCESSED_PEAKS_SERIES_TAG,
         visible_peak_x_values,
         visible_peak_green_values,
+    )
+
+
+def reset_heartbeat_values():
+    state["current_bpm"] = None
+    state["average_bpm"] = None
+    state["heartbeat_count"] = 0
+
+
+def format_bpm(value):
+    if value is None:
+        return "--"
+
+    return f"{value:.1f}"
+
+
+def update_heartbeat_panel():
+    dpg.set_value(
+        REALTIME_HEARTBEAT_AVERAGE_TAG,
+        f"Prosjek: {format_bpm(state['average_bpm'])} BPM",
+    )
+    dpg.set_value(
+        REALTIME_HEARTBEAT_COUNT_TAG,
+        f"Otkucaji: {state['heartbeat_count']}",
     )

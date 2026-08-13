@@ -202,6 +202,45 @@ def detect_peaks(x_values, signal_values, config):
     return peak_x_values, peak_y_values
 
 
+def calculate_heart_rate_from_peaks(peak_x_values, config):
+    if not getattr(config, "HEART_RATE_ENABLED", False):
+        return None, None, 0
+
+    peak_x_values = list(peak_x_values)
+
+    if len(peak_x_values) < 2:
+        return None, None, len(peak_x_values)
+
+    averaging_count = max(
+        1,
+        int(getattr(config, "HEART_RATE_AVERAGING_INTERVAL_COUNT", 5)),
+    )
+    min_bpm = float(getattr(config, "HEART_RATE_MIN_BPM", 40.0))
+    max_bpm = float(getattr(config, "HEART_RATE_MAX_BPM", 180.0))
+
+    bpm_values = []
+
+    for index in range(1, len(peak_x_values)):
+        interval_seconds = peak_x_values[index] - peak_x_values[index - 1]
+
+        if interval_seconds <= 0:
+            continue
+
+        bpm = 60.0 / interval_seconds
+
+        if min_bpm <= bpm <= max_bpm:
+            bpm_values.append(bpm)
+
+    if not bpm_values:
+        return None, None, len(peak_x_values)
+
+    recent_bpm_values = bpm_values[-averaging_count:]
+    current_bpm = sum(recent_bpm_values) / len(recent_bpm_values)
+    average_bpm = sum(bpm_values) / len(bpm_values)
+
+    return current_bpm, average_bpm, len(peak_x_values)
+
+
 def process_green_signal(x_values, signals, config):
     green_values = list(signals.get("green", []))
     x_values, green_values = limit_to_same_size(x_values, green_values)
