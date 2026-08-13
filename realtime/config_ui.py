@@ -16,6 +16,9 @@ LOW_PASS_FILTER_ENABLED_INPUT_TAG = "realtime_config_low_pass_filter_enabled"
 LOW_PASS_CUTOFF_HZ_INPUT_TAG = "realtime_config_low_pass_cutoff_hz"
 HIGH_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_high_pass_filter_passes"
 LOW_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_low_pass_filter_passes"
+PEAK_DETECTION_ENABLED_INPUT_TAG = "realtime_config_peak_detection_enabled"
+PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG = "realtime_config_peak_min_distance_seconds"
+PEAK_MIN_HEIGHT_INPUT_TAG = "realtime_config_peak_min_height"
 
 CHANNEL_SUBTRACTION_OPTIONS = (
     "none",
@@ -26,7 +29,7 @@ CHANNEL_SUBTRACTION_OPTIONS = (
 DC_REMOVAL_WINDOW_TYPE_OPTIONS = ("causal", "centered")
 
 CONFIG_WINDOW_WIDTH = 440
-CONFIG_WINDOW_HEIGHT = 470
+CONFIG_WINDOW_HEIGHT = 700
 CONFIG_INPUT_WIDTH = 180
 
 state = {
@@ -80,6 +83,19 @@ def update_filter_inputs(sender=None, app_data=None, user_data=None):
     dpg.configure_item(LOW_PASS_FILTER_PASSES_INPUT_TAG, enabled=low_pass_enabled)
 
 
+def update_peak_detection_inputs(sender=None, app_data=None, user_data=None):
+    peak_detection_enabled = bool(dpg.get_value(PEAK_DETECTION_ENABLED_INPUT_TAG))
+
+    dpg.configure_item(
+        PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG,
+        enabled=peak_detection_enabled,
+    )
+    dpg.configure_item(
+        PEAK_MIN_HEIGHT_INPUT_TAG,
+        enabled=peak_detection_enabled,
+    )
+
+
 def validate_config_values(
         startup_trim_seconds,
         dc_removal_enabled,
@@ -90,6 +106,8 @@ def validate_config_values(
         low_pass_cutoff_hz,
         high_pass_filter_passes,
         low_pass_filter_passes,
+        peak_detection_enabled,
+        peak_min_distance_seconds,
 ):
     if startup_trim_seconds < 0:
         raise ValueError("Vrijeme uklanjanja pocetka ne moze biti negativno.")
@@ -111,6 +129,9 @@ def validate_config_values(
 
     if low_pass_enabled and low_pass_filter_passes < 1:
         raise ValueError("Low-pass broj prolaza mora biti najmanje 1.")
+
+    if peak_detection_enabled and peak_min_distance_seconds <= 0:
+        raise ValueError("Minimalno rastojanje izmedju vrhova mora biti vece od 0.")
 
 
 def apply_config(sender=None, app_data=None, user_data=None):
@@ -141,6 +162,10 @@ def apply_config(sender=None, app_data=None, user_data=None):
         high_pass_filter_passes = read_int(HIGH_PASS_FILTER_PASSES_INPUT_TAG)
         low_pass_filter_passes = read_int(LOW_PASS_FILTER_PASSES_INPUT_TAG)
 
+        peak_detection_enabled = bool(dpg.get_value(PEAK_DETECTION_ENABLED_INPUT_TAG))
+        peak_min_distance_seconds = read_float(PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG)
+        peak_min_height = read_float(PEAK_MIN_HEIGHT_INPUT_TAG)
+
         validate_config_values(
             startup_trim_seconds,
             dc_removal_enabled,
@@ -151,6 +176,8 @@ def apply_config(sender=None, app_data=None, user_data=None):
             low_pass_cutoff_hz,
             high_pass_filter_passes,
             low_pass_filter_passes,
+            peak_detection_enabled,
+            peak_min_distance_seconds,
         )
 
         on_apply(
@@ -166,6 +193,9 @@ def apply_config(sender=None, app_data=None, user_data=None):
             low_pass_cutoff_hz,
             high_pass_filter_passes,
             low_pass_filter_passes,
+            peak_detection_enabled,
+            peak_min_distance_seconds,
+            peak_min_height,
         )
 
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
@@ -353,6 +383,39 @@ def add_filter_table():
         )
 
 
+def add_peak_detection_table():
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        policy=dpg.mvTable_SizingStretchProp,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=CONFIG_INPUT_WIDTH)
+
+        add_checkbox_row(
+            "Detektuj vrhove",
+            PEAK_DETECTION_ENABLED_INPUT_TAG,
+            update_peak_detection_inputs,
+        )
+
+        add_float_row(
+            "Minimalno rastojanje [s]",
+            PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG,
+            0.01,
+            "%.2f",
+        )
+
+        add_float_row(
+            "Minimalna visina",
+            PEAK_MIN_HEIGHT_INPUT_TAG,
+            -1000000.0,
+            "%.0f",
+        )
+
+
 def create(on_apply):
     state["on_apply"] = on_apply
 
@@ -386,6 +449,11 @@ def create(on_apply):
 
         with dpg.collapsing_header(label="Filtriranje signala", default_open=True):
             add_filter_table()
+
+        dpg.add_spacer(height=6)
+
+        with dpg.collapsing_header(label="Detekcija vrhova", default_open=True):
+            add_peak_detection_table()
 
         dpg.add_spacer(height=8)
         dpg.add_text("", tag=CONFIG_FORM_STATUS_TAG, color=(239, 68, 68, 255), wrap=400)
@@ -466,6 +534,21 @@ def open_config_form(config_name, config):
     )
 
     update_filter_inputs()
+
+    dpg.set_value(
+        PEAK_DETECTION_ENABLED_INPUT_TAG,
+        bool(getattr(config, "PEAK_DETECTION_ENABLED", False)),
+    )
+    dpg.set_value(
+        PEAK_MIN_DISTANCE_SECONDS_INPUT_TAG,
+        float(getattr(config, "PEAK_MIN_DISTANCE_SECONDS", 0.4)),
+    )
+    dpg.set_value(
+        PEAK_MIN_HEIGHT_INPUT_TAG,
+        float(getattr(config, "PEAK_MIN_HEIGHT", 0.0)),
+    )
+
+    update_peak_detection_inputs()
 
     dpg.configure_item(CONFIG_WINDOW_TAG, show=True)
     center_config_window()

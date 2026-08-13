@@ -160,6 +160,48 @@ def calculate_channel_subtraction_signal(signals, channel_subtraction):
     return green_values
 
 
+def detect_peaks(x_values, signal_values, config):
+    x_values, signal_values = limit_to_same_size(x_values, signal_values)
+
+    if not getattr(config, "PEAK_DETECTION_ENABLED", False):
+        return [], []
+
+    if len(x_values) < 3 or len(signal_values) < 3:
+        return [], []
+
+    min_distance_seconds = getattr(config, "PEAK_MIN_DISTANCE_SECONDS", 0.4)
+    min_height = getattr(config, "PEAK_MIN_HEIGHT", 0.0)
+
+    peak_x_values = []
+    peak_y_values = []
+
+    for index in range(1, len(signal_values) - 1):
+        previous_value = signal_values[index - 1]
+        current_value = signal_values[index]
+        next_value = signal_values[index + 1]
+
+        is_local_peak = current_value > previous_value and current_value >= next_value
+
+        if not is_local_peak or current_value < min_height:
+            continue
+
+        if not peak_x_values:
+            peak_x_values.append(x_values[index])
+            peak_y_values.append(current_value)
+            continue
+
+        distance_from_previous_peak = x_values[index] - peak_x_values[-1]
+
+        if distance_from_previous_peak >= min_distance_seconds:
+            peak_x_values.append(x_values[index])
+            peak_y_values.append(current_value)
+        elif current_value > peak_y_values[-1]:
+            peak_x_values[-1] = x_values[index]
+            peak_y_values[-1] = current_value
+
+    return peak_x_values, peak_y_values
+
+
 def process_green_signal(x_values, signals, config):
     green_values = list(signals.get("green", []))
     x_values, green_values = limit_to_same_size(x_values, green_values)

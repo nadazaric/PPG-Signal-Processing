@@ -4,7 +4,7 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 
 from realtime import config_ui
-from realtime.processing import process_green_signal
+from realtime.processing import process_green_signal, detect_peaks
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,6 +30,8 @@ REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG = "realtime_final_processed_green_seri
 REALTIME_FINAL_PROCESSED_GREEN_X_AXIS_TAG = "realtime_final_processed_green_x_axis"
 REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG = "realtime_final_processed_green_y_axis"
 REALTIME_FINAL_PROCESSED_CONTAINER_TAG = "realtime_final_processed_container"
+REALTIME_PROCESSED_PEAKS_SERIES_TAG = "realtime_processed_peaks_series"
+REALTIME_FINAL_PROCESSED_PEAKS_SERIES_TAG = "realtime_final_processed_peaks_series"
 
 REALTIME_STATUS_TAG = "realtime_status"
 
@@ -58,6 +60,8 @@ state = {
     "visible_range_start": 0,
     "visible_range_end": 0,
     "show_final_processed_plot": False,
+    "peak_x_values": [],
+    "peak_green_values": [],
 }
 
 
@@ -138,7 +142,10 @@ def save_realtime_config(config_name, config):
             f"LOW_PASS_FILTER_ENABLED = {bool(config.LOW_PASS_FILTER_ENABLED)}",
             f"LOW_PASS_CUTOFF_HZ = {float(config.LOW_PASS_CUTOFF_HZ)}",
             f"LOW_PASS_FILTER_PASSES = {int(config.LOW_PASS_FILTER_PASSES)}",
-
+            "",
+            f"PEAK_DETECTION_ENABLED = {bool(getattr(config, 'PEAK_DETECTION_ENABLED', False))}",
+            f"PEAK_MIN_DISTANCE_SECONDS = {float(getattr(config, 'PEAK_MIN_DISTANCE_SECONDS', 0.4))}",
+            f"PEAK_MIN_HEIGHT = {float(getattr(config, 'PEAK_MIN_HEIGHT', 0.0))}",
         ]
     )
     config_path.write_text(config_content + "\n", encoding="utf-8")
@@ -249,6 +256,11 @@ def update_config_status():
         f"{config_value(config, 'LOW_PASS_CUTOFF_HZ', 5.0)} Hz\n"
         f"  Low-pass broj prolaza: "
         f"{config_value(config, 'LOW_PASS_FILTER_PASSES', 1)}\n"
+        f"\n"
+        f"Detekcija vrhova:\n"
+        f"  Omoguceno: {config_value(config, 'PEAK_DETECTION_ENABLED', False)}\n"
+        f"  Minimalno rastojanje: {config_value(config, 'PEAK_MIN_DISTANCE_SECONDS', 0.4)} s\n"
+        f"  Minimalna visina: {config_value(config, 'PEAK_MIN_HEIGHT', 0.0)}\n"
     )
 
     dpg.set_value(CONFIG_STATUS_TAG, "")
@@ -288,6 +300,8 @@ def update_processed_data():
     if config is None or not arrived_x_values or "green" not in arrived_signals:
         state["processed_x_values"] = []
         state["processed_green"] = []
+        state["peak_x_values"] = []
+        state["peak_green_values"] = []
         return
 
     processed_x_values, processed_green = process_green_signal(
@@ -297,6 +311,14 @@ def update_processed_data():
     )
     state["processed_x_values"] = processed_x_values
     state["processed_green"] = processed_green
+
+    peak_x_values, peak_green_values = detect_peaks(
+        processed_x_values,
+        processed_green,
+        config,
+    )
+    state["peak_x_values"] = peak_x_values
+    state["peak_green_values"] = peak_green_values
 
 
 def update_status():
@@ -386,6 +408,23 @@ def update_processed_plot():
         visible_green_values,
     )
 
+    if visible_x_values:
+        visible_peak_x_values, visible_peak_green_values = filter_points_by_x_range(
+            state["peak_x_values"],
+            state["peak_green_values"],
+            visible_x_values[0],
+            visible_x_values[-1],
+        )
+    else:
+        visible_peak_x_values = []
+        visible_peak_green_values = []
+
+    set_scatter_data(
+        REALTIME_PROCESSED_PEAKS_SERIES_TAG,
+        visible_peak_x_values,
+        visible_peak_green_values,
+    )
+
 
 def update_plots():
     sample_count = min(len(state["x_values"]), len(get_green_values()))
@@ -411,6 +450,9 @@ def apply_runtime_config(
         low_pass_cutoff_hz,
         high_pass_filter_passes,
         low_pass_filter_passes,
+        peak_detection_enabled,
+        peak_min_distance_seconds,
+        peak_min_height,
 ):
     config = state["config"]
     config_name = state["config_name"]
@@ -430,6 +472,9 @@ def apply_runtime_config(
     config.LOW_PASS_CUTOFF_HZ = low_pass_cutoff_hz
     config.HIGH_PASS_FILTER_PASSES = high_pass_filter_passes
     config.LOW_PASS_FILTER_PASSES = low_pass_filter_passes
+    config.PEAK_DETECTION_ENABLED = peak_detection_enabled
+    config.PEAK_MIN_DISTANCE_SECONDS = peak_min_distance_seconds
+    config.PEAK_MIN_HEIGHT = peak_min_height
 
     update_plots()
     update_config_status()
@@ -565,15 +610,32 @@ def reset_realtime(sender=None, app_data=None, user_data=None):
     state["visible_original_green_values"] = []
     state["visible_processed_x_values"] = []
     state["visible_processed_green_values"] = []
+    state["peak_x_values"] = []
+    state["peak_green_values"] = []
     update_plots()
 
-
-def create_signal_plot(label, series_label, series_tag, x_axis_tag, y_axis_tag):
+def create_signal_plot(
+    label,
+    series_label,
+    series_tag,
+    x_axis_tag,
+    y_axis_tag,
+    peak_series_tag=None,
+    peak_series_label=None,
+):
     with dpg.plot(label=label, width=-1, height=REALTIME_PLOT_HEIGHT):
         dpg.add_plot_legend()
         dpg.add_plot_axis(dpg.mvXAxis, label="Vrijeme [s]", tag=x_axis_tag)
         dpg.add_plot_axis(dpg.mvYAxis, label="Green", tag=y_axis_tag)
         dpg.add_line_series([], [], label=series_label, parent=y_axis_tag, tag=series_tag)
+        if peak_series_tag is not None:
+            dpg.add_scatter_series(
+                [],
+                [],
+                label=peak_series_label,
+                parent=y_axis_tag,
+                tag=peak_series_tag,
+            )
 
 
 def create_save_config_window():
@@ -655,6 +717,8 @@ def create():
                     REALTIME_PROCESSED_GREEN_SERIES_TAG,
                     REALTIME_PROCESSED_GREEN_X_AXIS_TAG,
                     REALTIME_PROCESSED_GREEN_Y_AXIS_TAG,
+                    REALTIME_PROCESSED_PEAKS_SERIES_TAG,
+                    "Detected Peaks",
                 )
 
         dpg.add_spacer(height=8)
@@ -672,6 +736,8 @@ def create():
                 REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG,
                 REALTIME_FINAL_PROCESSED_GREEN_X_AXIS_TAG,
                 REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG,
+                REALTIME_FINAL_PROCESSED_PEAKS_SERIES_TAG,
+                "Detected Peaks",
             )
 
     create_save_config_window()
@@ -691,6 +757,25 @@ def set_visible_range(start, end):
     state["visible_range_start"] = int(start)
     state["visible_range_end"] = int(end)
     update_final_processed_plot()
+
+
+def set_scatter_data(series_tag, x_values, y_values):
+    if not dpg.does_item_exist(series_tag):
+        return
+
+    dpg.set_value(series_tag, [x_values, y_values])
+
+
+def filter_points_by_x_range(x_values, y_values, x_min, x_max):
+    visible_x_values = []
+    visible_y_values = []
+
+    for x_value, y_value in zip(x_values, y_values):
+        if x_min <= x_value <= x_max:
+            visible_x_values.append(x_value)
+            visible_y_values.append(y_value)
+
+    return visible_x_values, visible_y_values
 
 
 def hide_final_processed_plot():
@@ -747,4 +832,21 @@ def update_final_processed_plot():
         REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG,
         visible_x_values,
         visible_green_values,
+    )
+
+    if visible_x_values:
+        visible_peak_x_values, visible_peak_green_values = filter_points_by_x_range(
+            state["peak_x_values"],
+            state["peak_green_values"],
+            visible_x_values[0],
+            visible_x_values[-1],
+        )
+    else:
+        visible_peak_x_values = []
+        visible_peak_green_values = []
+
+    set_scatter_data(
+        REALTIME_FINAL_PROCESSED_PEAKS_SERIES_TAG,
+        visible_peak_x_values,
+        visible_peak_green_values,
     )
