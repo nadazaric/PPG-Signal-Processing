@@ -30,8 +30,10 @@ REALTIME_STATUS_TAG = "realtime_status"
 
 REALTIME_FRAME_INTERVAL = 3
 REALTIME_SAMPLES_PER_TICK = 5
-REALTIME_WINDOW_SIZE = 500
-REALTIME_PLOT_HEIGHT = 250
+# REALTIME_WINDOW_SIZE = 500
+REALTIME_WINDOW_SIZE = 200
+# REALTIME_PLOT_HEIGHT = 250
+REALTIME_PLOT_HEIGHT = 350
 SAVE_CONFIG_WINDOW_WIDTH = 420
 SAVE_CONFIG_WINDOW_HEIGHT = 145
 
@@ -114,6 +116,8 @@ def save_realtime_config(config_name, config):
             f"STARTUP_TRIM_SECONDS = {float(config.STARTUP_TRIM_SECONDS)}",
             f"INVERT_PROCESSED_SIGNAL = {bool(config.INVERT_PROCESSED_SIGNAL)}",
             "",
+            f"CHANNEL_SUBTRACTION = {repr(getattr(config, 'CHANNEL_SUBTRACTION', 'none'))}",
+            "",
             f"DC_REMOVAL_ENABLED = {bool(config.DC_REMOVAL_ENABLED)}",
             '# "causal" or "centered"',
             f"DC_REMOVAL_WINDOW_TYPE = {repr(config.DC_REMOVAL_WINDOW_TYPE)}",
@@ -126,6 +130,7 @@ def save_realtime_config(config_name, config):
             f"LOW_PASS_FILTER_ENABLED = {bool(config.LOW_PASS_FILTER_ENABLED)}",
             f"LOW_PASS_CUTOFF_HZ = {float(config.LOW_PASS_CUTOFF_HZ)}",
             f"LOW_PASS_FILTER_PASSES = {int(config.LOW_PASS_FILTER_PASSES)}",
+
         ]
     )
     config_path.write_text(config_content + "\n", encoding="utf-8")
@@ -214,6 +219,9 @@ def update_config_status():
         f"{config_value(config, 'STARTUP_TRIM_SECONDS', 0.0)} s\n"
         f"Invertovanje signala: "
         f"{config_value(config, 'INVERT_PROCESSED_SIGNAL', False)}\n"
+        f"\n"
+        f"Kombinovanje kanala:\n"
+        f"  Oduzimanje kanala: {config_value(config, 'CHANNEL_SUBTRACTION', 'none')}\n"
         f"\n"
         f"Uklanjanje DC komponente:\n"
         f"  Omoguceno: {config_value(config, 'DC_REMOVAL_ENABLED', False)}\n"
@@ -383,6 +391,7 @@ def update_plots():
 
 def apply_runtime_config(
         startup_trim_seconds,
+        channel_subtraction,
         dc_removal_enabled,
         dc_removal_window_type,
         dc_removal_window_seconds,
@@ -401,6 +410,7 @@ def apply_runtime_config(
         raise ValueError("Nijedna konfiguracija nije izabrana.")
 
     config.STARTUP_TRIM_SECONDS = startup_trim_seconds
+    config.CHANNEL_SUBTRACTION = channel_subtraction
     config.DC_REMOVAL_ENABLED = dc_removal_enabled
     config.DC_REMOVAL_WINDOW_TYPE = dc_removal_window_type
     config.DC_REMOVAL_WINDOW_SECONDS = dc_removal_window_seconds

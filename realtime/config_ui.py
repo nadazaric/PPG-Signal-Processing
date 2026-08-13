@@ -6,6 +6,7 @@ CONFIG_NAME_TAG = "realtime_config_name"
 STARTUP_TRIM_INPUT_TAG = "realtime_config_startup_trim"
 CONFIG_FORM_STATUS_TAG = "realtime_config_form_status"
 INVERT_PROCESSED_SIGNAL_INPUT_TAG = "realtime_config_invert_processed_signal"
+CHANNEL_SUBTRACTION_INPUT_TAG = "realtime_config_channel_subtraction"
 DC_REMOVAL_ENABLED_INPUT_TAG = "realtime_config_dc_removal_enabled"
 DC_REMOVAL_WINDOW_TYPE_INPUT_TAG = "realtime_config_dc_removal_window_type"
 DC_REMOVAL_WINDOW_SECONDS_INPUT_TAG = "realtime_config_dc_removal_window_seconds"
@@ -16,10 +17,16 @@ LOW_PASS_CUTOFF_HZ_INPUT_TAG = "realtime_config_low_pass_cutoff_hz"
 HIGH_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_high_pass_filter_passes"
 LOW_PASS_FILTER_PASSES_INPUT_TAG = "realtime_config_low_pass_filter_passes"
 
+CHANNEL_SUBTRACTION_OPTIONS = (
+    "none",
+    "red",
+    "infrared",
+    "red_infrared_mean",
+)
 DC_REMOVAL_WINDOW_TYPE_OPTIONS = ("causal", "centered")
 
 CONFIG_WINDOW_WIDTH = 440
-CONFIG_WINDOW_HEIGHT = 410
+CONFIG_WINDOW_HEIGHT = 470
 CONFIG_INPUT_WIDTH = 180
 
 state = {
@@ -43,6 +50,13 @@ def normalize_dc_removal_window_type(window_type):
     return DC_REMOVAL_WINDOW_TYPE_OPTIONS[0]
 
 
+def normalize_channel_subtraction(channel_subtraction):
+    if channel_subtraction in CHANNEL_SUBTRACTION_OPTIONS:
+        return channel_subtraction
+
+    return CHANNEL_SUBTRACTION_OPTIONS[0]
+
+
 def update_dc_removal_inputs(sender=None, app_data=None, user_data=None):
     dc_removal_enabled = bool(dpg.get_value(DC_REMOVAL_ENABLED_INPUT_TAG))
 
@@ -62,7 +76,6 @@ def update_filter_inputs(sender=None, app_data=None, user_data=None):
 
     dpg.configure_item(HIGH_PASS_CUTOFF_HZ_INPUT_TAG, enabled=high_pass_enabled)
     dpg.configure_item(LOW_PASS_CUTOFF_HZ_INPUT_TAG, enabled=low_pass_enabled)
-
     dpg.configure_item(HIGH_PASS_FILTER_PASSES_INPUT_TAG, enabled=high_pass_enabled)
     dpg.configure_item(LOW_PASS_FILTER_PASSES_INPUT_TAG, enabled=low_pass_enabled)
 
@@ -76,7 +89,7 @@ def validate_config_values(
         low_pass_enabled,
         low_pass_cutoff_hz,
         high_pass_filter_passes,
-        low_pass_filter_passes
+        low_pass_filter_passes,
 ):
     if startup_trim_seconds < 0:
         raise ValueError("Vrijeme uklanjanja pocetka ne moze biti negativno.")
@@ -109,6 +122,9 @@ def apply_config(sender=None, app_data=None, user_data=None):
     try:
         startup_trim_seconds = read_float(STARTUP_TRIM_INPUT_TAG)
         invert_processed_signal = bool(dpg.get_value(INVERT_PROCESSED_SIGNAL_INPUT_TAG))
+        channel_subtraction = normalize_channel_subtraction(
+            dpg.get_value(CHANNEL_SUBTRACTION_INPUT_TAG)
+        )
 
         dc_removal_enabled = bool(dpg.get_value(DC_REMOVAL_ENABLED_INPUT_TAG))
         dc_removal_window_type = normalize_dc_removal_window_type(
@@ -134,11 +150,12 @@ def apply_config(sender=None, app_data=None, user_data=None):
             low_pass_enabled,
             low_pass_cutoff_hz,
             high_pass_filter_passes,
-            low_pass_filter_passes
+            low_pass_filter_passes,
         )
 
         on_apply(
             startup_trim_seconds,
+            channel_subtraction,
             dc_removal_enabled,
             dc_removal_window_type,
             dc_removal_window_seconds,
@@ -148,7 +165,7 @@ def apply_config(sender=None, app_data=None, user_data=None):
             low_pass_enabled,
             low_pass_cutoff_hz,
             high_pass_filter_passes,
-            low_pass_filter_passes
+            low_pass_filter_passes,
         )
 
         dpg.configure_item(CONFIG_WINDOW_TAG, show=False)
@@ -206,6 +223,25 @@ def add_combo_row(label, items, tag):
             tag=tag,
             default_value=items[0],
             width=-1,
+        )
+
+
+def add_channel_subtraction_table():
+    with dpg.table(
+        header_row=False,
+        borders_innerH=False,
+        borders_innerV=False,
+        borders_outerH=False,
+        borders_outerV=False,
+        policy=dpg.mvTable_SizingStretchProp,
+    ):
+        dpg.add_table_column(width_stretch=True)
+        dpg.add_table_column(width_fixed=True, init_width_or_weight=CONFIG_INPUT_WIDTH)
+
+        add_combo_row(
+            "Oduzimanje kanala",
+            CHANNEL_SUBTRACTION_OPTIONS,
+            CHANNEL_SUBTRACTION_INPUT_TAG,
         )
 
 
@@ -338,6 +374,11 @@ def create(on_apply):
 
         dpg.add_spacer(height=6)
 
+        with dpg.collapsing_header(label="Kombinovanje kanala", default_open=True):
+            add_channel_subtraction_table()
+
+        dpg.add_spacer(height=6)
+
         with dpg.collapsing_header(label="Uklanjanje DC komponente", default_open=True):
             add_dc_removal_table()
 
@@ -366,6 +407,16 @@ def open_config_form(config_name, config):
     dpg.set_value(
         INVERT_PROCESSED_SIGNAL_INPUT_TAG,
         bool(getattr(config, "INVERT_PROCESSED_SIGNAL", False)),
+    )
+    dpg.configure_item(
+        CHANNEL_SUBTRACTION_INPUT_TAG,
+        items=list(CHANNEL_SUBTRACTION_OPTIONS),
+    )
+    dpg.set_value(
+        CHANNEL_SUBTRACTION_INPUT_TAG,
+        normalize_channel_subtraction(
+            getattr(config, "CHANNEL_SUBTRACTION", "none")
+        ),
     )
     dpg.set_value(
         DC_REMOVAL_ENABLED_INPUT_TAG,

@@ -126,8 +126,42 @@ def apply_filter_repeatedly(filter_function, x_values, signal_values, cutoff_hz,
     return x_values, signal_values
 
 
+def calculate_channel_subtraction_signal(signals, channel_subtraction):
+    green_values = list(signals.get("green", []))
+
+    if channel_subtraction == "red":
+        red_values = list(signals.get("red", []))
+        data_size = min(len(green_values), len(red_values))
+
+        return [
+            green_values[index] - red_values[index]
+            for index in range(data_size)
+        ]
+
+    if channel_subtraction == "infrared":
+        infrared_values = list(signals.get("infrared", []))
+        data_size = min(len(green_values), len(infrared_values))
+
+        return [
+            green_values[index] - infrared_values[index]
+            for index in range(data_size)
+        ]
+
+    if channel_subtraction == "red_infrared_mean":
+        red_values = list(signals.get("red", []))
+        infrared_values = list(signals.get("infrared", []))
+        data_size = min(len(green_values), len(red_values), len(infrared_values))
+
+        return [
+            green_values[index] - ((red_values[index] + infrared_values[index]) / 2.0)
+            for index in range(data_size)
+        ]
+
+    return green_values
+
+
 def process_green_signal(x_values, signals, config):
-    green_values = signals.get("green", [])
+    green_values = list(signals.get("green", []))
     x_values, green_values = limit_to_same_size(x_values, green_values)
 
     if not x_values or not green_values:
@@ -145,7 +179,21 @@ def process_green_signal(x_values, signals, config):
     )
 
     processed_x_values = list(x_values[start_index:])
-    processed_green = list(green_values[start_index:])
+    processed_signals = {
+        signal_name: list(signal_values[start_index:])
+        for signal_name, signal_values in signals.items()
+    }
+
+    # CHANNEL SUBTRACTION
+    channel_subtraction = getattr(config, "CHANNEL_SUBTRACTION", "none")
+    processed_green = calculate_channel_subtraction_signal(
+        processed_signals,
+        channel_subtraction,
+    )
+    processed_x_values, processed_green = limit_to_same_size(
+        processed_x_values,
+        processed_green,
+    )
 
     if not processed_x_values or not processed_green:
         return [], []
