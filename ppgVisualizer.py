@@ -1,7 +1,7 @@
 import csv
 from pathlib import Path
 from static import ui as static_processing_ui
-
+from realtime import ui as realtime_processing_ui
 import dearpygui.dearpygui as dpg
 
 
@@ -41,19 +41,59 @@ def to_float(value):
         return 0.0
 
 
+def calculate_time_values(rows):
+    has_timestamp = rows and "timestamp" in rows[0]
+
+    if has_timestamp:
+        timestamp_values = [
+            to_float(row.get("timestamp"))
+            for row in rows
+        ]
+        first_timestamp = timestamp_values[0]
+        relative_timestamps = [
+            timestamp - first_timestamp
+            for timestamp in timestamp_values
+        ]
+        max_relative_timestamp = max(relative_timestamps) if relative_timestamps else 0.0
+
+        if max_relative_timestamp > 1_000_000_000:
+            timestamp_scale = 1_000_000_000.0
+        elif max_relative_timestamp > 1_000_000:
+            timestamp_scale = 1_000_000.0
+        elif max_relative_timestamp > 1_000:
+            timestamp_scale = 1_000.0
+        else:
+            timestamp_scale = 1.0
+
+        return [
+            relative_timestamp / timestamp_scale
+            for relative_timestamp in relative_timestamps
+        ]
+
+    return [
+        to_float(row.get("sample_index", row_number)) / FS_HZ
+        for row_number, row in enumerate(rows)
+    ]
+
+
 def load_ppg_csv(path):
-    x_values = []
     signals = {name: [] for name in SIGNAL_COLUMNS}
 
     with path.open("r", encoding="utf-8-sig", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
-        missing_columns = [name for name in ("sample_index", *SIGNAL_COLUMNS) if name not in (reader.fieldnames or [])]
+        fieldnames = reader.fieldnames or []
+        missing_columns = [name for name in SIGNAL_COLUMNS if name not in fieldnames]
+
+        if "sample_index" not in fieldnames and "timestamp" not in fieldnames:
+            missing_columns.append("sample_index ili timestamp")
+
         if missing_columns:
             raise ValueError(f"CSV nema potrebne kolone: {', '.join(missing_columns)}")
 
-        for row_number, row in enumerate(reader):
-            sample_index = to_float(row.get("sample_index", row_number))
-            x_values.append(sample_index / FS_HZ)
+        rows = list(reader)
+        x_values = calculate_time_values(rows)
+
+        for row in rows:
             for signal_name in SIGNAL_COLUMNS:
                 signals[signal_name].append(to_float(row.get(signal_name)))
 
@@ -171,10 +211,8 @@ def load_selected_file(sender=None, app_data=None, user_data=None):
     path = DATA_DIR / selected_name
     try:
         x_values, signals = load_ppg_csv(path)
-        static_processing_ui.set_data(
-            x_values,
-            signals,
-        )
+        static_processing_ui.set_data(x_values, signals)
+        realtime_processing_ui.set_data(x_values, signals)
     except Exception as exc:
         dpg.set_value("status_text", f"Greska pri ucitavanju: {exc}")
         return
@@ -314,7 +352,11 @@ def build_ui():
             with dpg.tab(label="Staticka obrada"):
                 static_processing_ui.create()
 
+            with dpg.tab(label="Realtime obrada"):
+                realtime_processing_ui.create()
+
     static_processing_ui.create_config_form()
+    realtime_processing_ui.create_config_form()
 
     with dpg.handler_registry():
         dpg.add_mouse_wheel_handler(callback=on_mouse_wheel)
