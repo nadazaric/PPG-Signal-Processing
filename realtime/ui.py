@@ -26,6 +26,11 @@ REALTIME_PROCESSED_GREEN_SERIES_TAG = "realtime_processed_green_series"
 REALTIME_PROCESSED_GREEN_X_AXIS_TAG = "realtime_processed_green_x_axis"
 REALTIME_PROCESSED_GREEN_Y_AXIS_TAG = "realtime_processed_green_y_axis"
 
+REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG = "realtime_final_processed_green_series"
+REALTIME_FINAL_PROCESSED_GREEN_X_AXIS_TAG = "realtime_final_processed_green_x_axis"
+REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG = "realtime_final_processed_green_y_axis"
+REALTIME_FINAL_PROCESSED_CONTAINER_TAG = "realtime_final_processed_container"
+
 REALTIME_STATUS_TAG = "realtime_status"
 
 REALTIME_FRAME_INTERVAL = 3
@@ -50,6 +55,9 @@ state = {
     "is_running": False,
     "config": None,
     "config_name": None,
+    "visible_range_start": 0,
+    "visible_range_end": 0,
+    "show_final_processed_plot": False,
 }
 
 
@@ -387,6 +395,7 @@ def update_plots():
     update_original_plot(current_index)
     update_processed_plot()
     update_status()
+    update_final_processed_plot()
 
 
 def apply_runtime_config(
@@ -516,6 +525,7 @@ def realtime_tick(sender=None, app_data=None, user_data=None):
 
     if state["current_index"] >= sample_count:
         state["is_running"] = False
+        state["show_final_processed_plot"] = True
 
     update_plots()
     schedule_next_tick()
@@ -538,6 +548,7 @@ def start_realtime(sender=None, app_data=None, user_data=None):
     state["is_running"] = True
     update_plots()
     schedule_next_tick()
+    hide_final_processed_plot()
 
 
 def pause_realtime(sender=None, app_data=None, user_data=None):
@@ -646,13 +657,94 @@ def create():
                     REALTIME_PROCESSED_GREEN_Y_AXIS_TAG,
                 )
 
+        dpg.add_spacer(height=8)
+
+        with dpg.child_window(
+            tag=REALTIME_FINAL_PROCESSED_CONTAINER_TAG,
+            width=-1,
+            height=REALTIME_PLOT_HEIGHT + 55,
+            border=True,
+            show=False,
+        ):
+            create_signal_plot(
+                "Final Processed Green signal",
+                "Final Processed Green",
+                REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG,
+                REALTIME_FINAL_PROCESSED_GREEN_X_AXIS_TAG,
+                REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG,
+            )
+
     create_save_config_window()
 
     dpg.bind_item_theme(REALTIME_ORIGINAL_GREEN_SERIES_TAG, original_green_theme)
     dpg.bind_item_theme(REALTIME_PROCESSED_GREEN_SERIES_TAG, processed_green_theme)
+    dpg.bind_item_theme(REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG, processed_green_theme)
     refresh_realtime_config_list(select_first=True)
     update_plots()
 
 
 def create_config_form():
     config_ui.create(apply_runtime_config)
+
+
+def set_visible_range(start, end):
+    state["visible_range_start"] = int(start)
+    state["visible_range_end"] = int(end)
+    update_final_processed_plot()
+
+
+def hide_final_processed_plot():
+    state["show_final_processed_plot"] = False
+
+    if dpg.does_item_exist(REALTIME_FINAL_PROCESSED_CONTAINER_TAG):
+        dpg.configure_item(REALTIME_FINAL_PROCESSED_CONTAINER_TAG, show=False)
+
+
+def get_final_processed_visible_data():
+    processed_x_values = state["processed_x_values"]
+    processed_green = state["processed_green"]
+
+    if not processed_x_values or not processed_green:
+        return [], []
+
+    if not state["x_values"]:
+        return processed_x_values, processed_green
+
+    start_index = max(0, min(state["visible_range_start"], len(state["x_values"]) - 1))
+    end_index = max(start_index + 1, min(state["visible_range_end"], len(state["x_values"])))
+
+    x_min = state["x_values"][start_index]
+    x_max = state["x_values"][end_index - 1]
+
+    visible_x_values = []
+    visible_green_values = []
+
+    for x_value, green_value in zip(processed_x_values, processed_green):
+        if x_min <= x_value <= x_max:
+            visible_x_values.append(x_value)
+            visible_green_values.append(green_value)
+
+    return visible_x_values, visible_green_values
+
+
+def update_final_processed_plot():
+    if not dpg.does_item_exist(REALTIME_FINAL_PROCESSED_CONTAINER_TAG):
+        return
+
+    dpg.configure_item(
+        REALTIME_FINAL_PROCESSED_CONTAINER_TAG,
+        show=state["show_final_processed_plot"],
+    )
+
+    if not state["show_final_processed_plot"]:
+        return
+
+    visible_x_values, visible_green_values = get_final_processed_visible_data()
+
+    set_plot_data(
+        REALTIME_FINAL_PROCESSED_GREEN_SERIES_TAG,
+        REALTIME_FINAL_PROCESSED_GREEN_X_AXIS_TAG,
+        REALTIME_FINAL_PROCESSED_GREEN_Y_AXIS_TAG,
+        visible_x_values,
+        visible_green_values,
+    )

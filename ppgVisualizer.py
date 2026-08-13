@@ -166,6 +166,7 @@ def update_plots():
     x_visible = state["x"][start:end]
 
     static_processing_ui.set_visible_range(start, end)
+    realtime_processing_ui.set_visible_range(start, end)
 
     if not x_visible:
         for signal_name in SIGNAL_COLUMNS:
